@@ -1,0 +1,18 @@
+scripts:
+    install:
+      - pip install -r requirements.txt
+    server:
+      - cd src && python3 manage.py runserver 8888
+    makemigrations:
+      - cd src && python3 manage.py makemigrations
+    migrate:
+      - cd src && python3 manage.py migrate
+    shell:
+      - cd src && python3 manage.py shell
+    curl_auth: | 
+      curl -X POST -H "Content-Type: application/json" \
+        -d '{"username":"danhdue","password":"123abc"}' \
+        http://127.0.0.1:8888/api/token/pair
+    curl_protect: | 
+      curl -X GET -H "Authorization: Bearer <curl_auth_access_token>" \
+        http://127.0.0.1:8888/api/me
