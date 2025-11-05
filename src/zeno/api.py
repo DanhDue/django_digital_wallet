@@ -1,5 +1,9 @@
 from typing import Optional
 
+import os
+
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
 from ninja import Schema
 from ninja_extra import NinjaExtraAPI
 from ninja_jwt.authentication import JWTAuth
