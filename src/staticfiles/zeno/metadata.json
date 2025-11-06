@@ -1,0 +1,6 @@
+{
+    "name": "Zeno",
+    "symbol": "ZEO",
+    "description": "Official token for DanhDue's Digital Wallet",
+    "image": "https://raw.githubusercontent.com/DanhDue/django_digital_wallet/refs/heads/develop/src/staticfiles/images/Zeno_512.png"
+}
