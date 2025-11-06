@@ -1,23 +1,28 @@
 from typing import List
 
-from django.shortcuts import get_object_or_404
 from ninja import Router
 
 import helpers
 from services.solana_service import SolanaService
 
-import json
-
 from .models import WalletModel
 from .schemas import WalletModelCreationSchema, WalletModelSchema
+from helpers.base_response_schema import BaseResponseSchema
 
-router = Router()
+
+router = Router(tags=["Wallets"])
 
 
-@router.get("", response=List[WalletModelSchema], auth=helpers.api_auth_user_required)
+@router.get(
+    "",
+    response=BaseResponseSchema[List[WalletModelSchema]],
+    auth=helpers.api_auth_user_required,
+)
 def retrieve_wallet_list(request):
     qs = WalletModel.objects.filter(user=request.user)
-    return qs
+    return BaseResponseSchema[List[WalletModelSchema]](
+        data=qs, message="fetch wallet list successfully"
+    )
 
 
 @router.post("", response=WalletModelSchema, auth=helpers.api_auth_user_or_anon)
@@ -34,7 +39,10 @@ async def wallet_balance(request, address: str):
     """Async endpoint to fetch SOL balance."""
     balance = await SolanaService.get_balance(address)
     wallet = await SolanaService.create_or_restore_wallet()
-    return {"address": address, "balance_SOL": balance, "wallet": wallet}
+    return BaseResponseSchema[dict](
+        data={"address": address, "balance_SOL": balance, **wallet},
+        message="fetch wallet info successfully",
+    )
 
 
 @router.get("/tokens/{address}", auth=helpers.api_auth_user_or_anon)

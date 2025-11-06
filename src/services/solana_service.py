@@ -1,15 +1,13 @@
+import json
 from typing import Any
 
-
+import base58
+from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
 from solana.rpc.async_api import AsyncClient
+from solana.rpc.types import TokenAccountOpts
+from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from spl.token.constants import TOKEN_PROGRAM_ID
-from solana.rpc.types import TokenAccountOpts
-import json
-from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
-from solders.keypair import Keypair
-import base58
-
 
 LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -52,10 +50,8 @@ class SolanaService:
     @staticmethod
     async def create_or_restore_wallet():
         mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)
-        print("mnemonic", mnemonic)
         seed_bytes = Bip39SeedGenerator(mnemonic).Generate("optional-passphrase")
         keypair = SolanaService.keypair_from_seed_bytes(seed_bytes)
-        print("private_key", keypair, "public_key", keypair.pubkey())
         secret_bytes = bytes(keypair)
         private_key_bytes = secret_bytes[:32]
         secret_uint8array = list[Any](keypair.secret())
