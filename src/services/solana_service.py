@@ -1,4 +1,6 @@
 import json
+import stat
+from audioop import add
 from typing import Any
 
 import base58
@@ -16,7 +18,7 @@ class SolanaService:
     endpoint = "https://api.devnet.solana.com"
 
     @staticmethod
-    def keypair_from_seed_bytes(seed_bytes: bytes) -> Keypair:
+    def create_keypair_from_seed_bytes(seed_bytes: bytes) -> Keypair:
         """Create a Keypair from BIP39 seed bytes (use first 32 bytes)."""
         return Keypair.from_seed(seed_bytes[:32])
 
@@ -48,17 +50,32 @@ class SolanaService:
             return json_data
 
     @staticmethod
-    async def create_or_restore_wallet():
-        mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)
-        seed_bytes = Bip39SeedGenerator(mnemonic).Generate("optional-passphrase")
-        keypair = SolanaService.keypair_from_seed_bytes(seed_bytes)
-        secret_bytes = bytes(keypair)
-        private_key_bytes = secret_bytes[:32]
-        secret_uint8array = list[Any](keypair.secret())
-        result = {
-            "mnemonic": str(mnemonic),
-            "bs58PrivateKey": base58.b58encode(private_key_bytes).decode(),
-            "private_key": str(secret_uint8array),
-            "public_key": f"{keypair.pubkey()}",
-        }
+    async def create_or_restore_wallet(address: str):
+        print(f"create_or_restore_wallet(address: ${address})")
+        if not address or not address.strip():
+            # create a new wallet
+            print("")
+        else:
+            # restore wallet by adress.
+            mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)
+            seed_bytes = Bip39SeedGenerator(mnemonic).Generate("optional-passphrase")
+            keypair = SolanaService.create_keypair_from_seed_bytes(seed_bytes)
+            secret_bytes = bytes(keypair)
+            private_key_bytes = secret_bytes[:32]
+            secret_uint8array = list[Any](keypair.secret())
+            result = {
+                "mnemonic": str(mnemonic),
+                "bs58PrivateKey": base58.b58encode(private_key_bytes).decode(),
+                "private_key": str(secret_uint8array),
+                "public_key": f"{keypair.pubkey()}",
+            }
         return result
+
+    @staticmethod
+    async def verifyKeyPair(pubKey: str, secretKey: str):
+        print(f"verifyKeyPair(pubKey: ${pubKey}, secretKey: ${secretKey})")
+
+    @staticmethod
+    async def validatePublicKey(pubKey: str) -> bool:
+        print(f"validatePublicKey(pubKey: ${pubKey})")
+        return True

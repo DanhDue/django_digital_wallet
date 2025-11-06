@@ -19,6 +19,7 @@ class WalletModelCreationSchema(Schema):
 class WalletModelSchema(Schema):
     email: Optional[EmailStr] = None
     email_confirmed: bool = False
+    isValid: Optional[bool] = False
     privateKey: Optional[str] = None
     bs58PrivateKey: Optional[str] = None
     address: Optional[str] = None
