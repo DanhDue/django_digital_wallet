@@ -6,8 +6,11 @@ from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
+from spl.token._layouts import MINT_LAYOUT
 from spl.token.constants import TOKEN_PROGRAM_ID
+from spl.token.core import MintInfo
 
+from schemas.token_schemas import MintTokenSchema
 from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
 
 LAMPORTS_PER_SOL = 1_000_000_000
@@ -131,8 +134,43 @@ class SolanaService:
         else:
             return self._create_new_wallet()
 
-    async def verify_key_pair(self, pub_key: str, secret_key: str):
-        pass
+    async def get_mint_token(self, mint_address: str) -> MintTokenSchema:
+        async with AsyncClient(
+            self.endpoint,
+            timeout=30.0,
+        ) as client:
+            try:
+                mint_address_key = Pubkey.from_string(mint_address)
+                print("get_mint_token:", mint_address_key)
+                # Get account info
+                account_info = await client.get_account_info(mint_address_key)
+                # Parse mint data using layout
+                mint_data = MINT_LAYOUT.parse(account_info.value.data)
 
-    async def validate_public_key(self, pub_key: str) -> bool:
-        return True
+                # Create MintInfo object
+                mint_info = MintInfo(
+                    mint_authority=mint_data.mint_authority,
+                    supply=mint_data.supply,
+                    decimals=mint_data.decimals,
+                    is_initialized=mint_data.is_initialized,
+                    freeze_authority=mint_data.freeze_authority,
+                )
+
+                authority_keypair = Pubkey.from_bytes(mint_info.mint_authority)
+                freeze_authority_keypair = Pubkey.from_bytes(mint_info.freeze_authority)
+
+                return MintTokenSchema(
+                    address=mint_address,
+                    decimals=mint_info.decimals,
+                    supply=mint_info.supply,
+                    is_initialized=mint_info.is_initialized,
+                    mint_authority=str(authority_keypair),
+                    freeze_authority=str(freeze_authority_keypair),
+                )
+            except Exception as e:
+                print(f"Get mint token info from Solana is error: {e}")
+                return MintTokenSchema(error=f"Solana return: {e}")
+            
+    def validate_public_key(self, wallet_address: str) -> bool:
+        key = Pubkey.from_string(wallet_address)
+        return key.is_on_curve()

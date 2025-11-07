@@ -13,7 +13,7 @@ class BaseResponseSchema(GenericModel, Generic[T]):
     data: Optional[T] = None
 
     model_config = {
-        "orm_mode": True,
+        "from_attributes": True,
         "exclude_none": True,
     }
 

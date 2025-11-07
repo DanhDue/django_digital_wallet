@@ -1,6 +1,6 @@
-from typing import List
+from typing import Any, List
 
-from ninja import Router
+from ninja_extra import Router
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema
@@ -54,12 +54,13 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 @router.get(
     "/{address}",
     response=dict,
+    auth=helpers.api_auth_user_or_anon,
     summary="Validate a wallet by its address.",
     description="Validate and retrieve wallet information (including SOL balance) by providing the wallet address.",
 )
 async def wallet_validation(request, address: str):
     print(f"create_wallet: userID: {request.user.id}")
-    is_valid = await solana_service.validate_public_key(pub_key=address)
+    is_valid = solana_service.validate_public_key(wallet_address=address)
     balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
@@ -69,12 +70,15 @@ async def wallet_validation(request, address: str):
 
 
 @router.post(
-    "/{address}/airdrop",
+    "/airdrop",
     response=dict,
+    auth=helpers.api_auth_user_or_anon,
     summary="Airdrop solana to a wallet",
     description="Airdrop solana to a wallet.",
 )
 async def airdrop(request, data: WalletAirdropSchema):
     print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
-    return BaseResponseSchema(data=result, message="airdrop successfully").to_dict()
+    return BaseResponseSchema[Any](
+        data=result, message="airdrop successfully"
+    ).to_dict()

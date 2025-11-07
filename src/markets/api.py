@@ -1,6 +1,6 @@
 from typing import List
 
-from ninja import Router
+from ninja_extra import Router
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema

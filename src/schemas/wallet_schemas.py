@@ -13,7 +13,7 @@ class WalletModelCreationSchema(Schema):
     mnemonics: Optional[str] = None
 
     model_config = {
-        "orm_mode": True,
+        "from_attributes": True,
         "exclude_none": True,
     }
 
@@ -21,7 +21,11 @@ class WalletModelCreationSchema(Schema):
 class WalletAirdropSchema(Schema):
     address: Optional[str] = None
     amount: Optional[float] = 5.0
-    error: Optional[str] = None
+
+    model_config = {
+        "from_attributes": True,
+        "exclude_none": True,
+    }
 
 
 class WalletModelSchema(Schema):
@@ -42,6 +46,6 @@ class WalletModelSchema(Schema):
     signature: Optional[str] = None
 
     model_config = {
-        "orm_mode": True,
+        "from_attributes": True,
         "exclude_none": True,
     }
