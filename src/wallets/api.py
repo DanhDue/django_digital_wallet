@@ -3,11 +3,11 @@ from typing import List
 from ninja import Router
 
 import helpers
-from helpers.base_response_schema import BaseResponseSchema
+from schemas.base_response_schema import BaseResponseSchema
+from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
 from services.solana_service import SolanaService
 
 from .models import WalletModel
-from .schemas import WalletModelCreationSchema, WalletModelSchema
 
 router = Router(tags=["Wallets"])
 
@@ -29,7 +29,7 @@ def retrieve_wallet_list(request):
 
 @router.post(
     "",
-    response=BaseResponseSchema[WalletModelSchema],
+    response=dict,
     auth=helpers.api_auth_user_or_anon,
     summary="Create or restore a wallet",
     description=(
@@ -38,13 +38,11 @@ def retrieve_wallet_list(request):
     ),
 )
 async def create_wallet(request, data: WalletModelCreationSchema):
-    print(f"create_wallet: userID: ${request.user}")
-    balance = await SolanaService.get_balance(data.address)
-    wallet = await SolanaService.create_or_restore_wallet()
-    return BaseResponseSchema[dict](
-        data={"address": data.address, "balance_SOL": balance, **wallet},
+    wallet = await SolanaService.create_or_restore_wallet(data)
+    return BaseResponseSchema[WalletModelSchema](
+        data=wallet,
         message="fetch wallet info successfully",
-    )
+    ).to_dict()
 
 
 @router.get(
@@ -55,7 +53,7 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 )
 async def wallet_validation(request, address: str):
     print(f"create_wallet: userID: ${request.user.id}")
-    is_valid = await SolanaService.validatePublicKey()
+    is_valid = await SolanaService.validate_public_key()
     balance = await SolanaService.get_balance(address)
     return BaseResponseSchema[WalletModelSchema](
         data=WalletModelSchema(address, isValid=is_valid, balance=balance),

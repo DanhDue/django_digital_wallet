@@ -1,5 +1,6 @@
 from ninja import Schema
 
+
 class TokenSchema(Schema):
     address: str
     mintAuthority: str

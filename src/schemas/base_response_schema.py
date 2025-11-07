@@ -3,15 +3,19 @@ from typing import Generic, Optional, TypeVar
 
 from pydantic.generics import GenericModel
 
-T = TypeVar("T")  # type for generic data field
+T = TypeVar("T")
 
 
 class BaseResponseSchema(GenericModel, Generic[T]):
-    """Generic API response schema."""
 
     success: bool = True
     message: Optional[str] = None
     data: Optional[T] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "orm_mode": True,
+        "exclude_none": True,
+    }
+
+    def to_dict(self, exclude_none: Optional[bool] = True):
+        return self.model_dump(exclude_none=exclude_none)

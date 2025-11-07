@@ -3,9 +3,8 @@ from typing import List
 from ninja import Router
 
 import helpers
-from helpers.base_response_schema import BaseResponseSchema
-from markets.models import MarketModel
-from markets.schemas import MarketSchema
+from schemas.base_response_schema import BaseResponseSchema
+from schemas.market_schemas import MarketSchema
 
 router = Router(tags=["Markets"])
 

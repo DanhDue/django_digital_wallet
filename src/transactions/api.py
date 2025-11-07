@@ -4,8 +4,8 @@ from ninja import Router
 
 import helpers
 
-from helpers.base_response_schema import BaseResponseSchema
-from transactions.schemas import TransactionSchema
+from schemas.base_response_schema import BaseResponseSchema
+from schemas.transaction_schemas import TransactionSchema
 
 router = Router(tags=["Transactions"])
 

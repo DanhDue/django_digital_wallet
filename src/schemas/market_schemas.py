@@ -1,5 +1,6 @@
 from ninja import Schema
 
+
 class MarketSchema(Schema):
     name: str
     symbol: str
