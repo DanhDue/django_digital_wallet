@@ -20,6 +20,27 @@ class SolanaService:
     def create_keypair_from_seed_bytes(self, seed_bytes: bytes) -> Keypair:
         return Keypair.from_seed(seed_bytes[:32])
 
+    async def airdrop(self, address: str, amount: float = 5.0) -> dict:
+        async with AsyncClient(
+            self.endpoint,
+            timeout=30.0,
+        ) as client:
+            try:
+                pubkey = Pubkey.from_string(address)
+                res = await client.request_airdrop(
+                    pubkey, int(amount * LAMPORTS_PER_SOL)
+                )
+                print(f"Airdrop signature: {res.value}")
+                new_balance = await client.get_balance(address)
+                print(f"Balance: {new_balance.value} SOL")
+                return WalletModelSchema(
+                    address=address, balance=new_balance, signature=res.value
+                )
+            except Exception as e:
+                return WalletModelSchema(
+                    error=f"{e if (str(e) or "").strip() else 'Cannot airdrop now. Please try again.'}"
+                )
+
     async def get_balance(self, address: str) -> float:
         async with AsyncClient(
             self.endpoint,

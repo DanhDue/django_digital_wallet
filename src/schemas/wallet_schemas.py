@@ -18,6 +18,12 @@ class WalletModelCreationSchema(Schema):
     }
 
 
+class WalletAirdropSchema(Schema):
+    address: Optional[str] = None
+    amount: Optional[float] = 5.0
+    error: Optional[str] = None
+
+
 class WalletModelSchema(Schema):
     userId: Optional[str] = None
     email: Optional[EmailStr] = None
@@ -33,6 +39,7 @@ class WalletModelSchema(Schema):
     updated_at: Optional[datetime] = None
     error: Optional[str] = None
     error: Optional[str] = None
+    signature: Optional[str] = None
 
     model_config = {
         "orm_mode": True,

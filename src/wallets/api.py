@@ -4,7 +4,11 @@ from ninja import Router
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema
-from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
+from schemas.wallet_schemas import (
+    WalletAirdropSchema,
+    WalletModelCreationSchema,
+    WalletModelSchema,
+)
 from services.solana_service import SolanaService
 
 from .models import WalletModel
@@ -62,3 +66,15 @@ async def wallet_validation(request, address: str):
         data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
         message="fetch wallet info successfully",
     ).to_dict()
+
+
+@router.post(
+    "/{address}/airdrop",
+    response=dict,
+    summary="Airdrop solana to a wallet",
+    description="Airdrop solana to a wallet.",
+)
+async def airdrop(request, data: WalletAirdropSchema):
+    print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
+    result = await solana_service.airdrop(address=data.address, amount=data.amount)
+    return BaseResponseSchema(data=result, message="airdrop successfully").to_dict()
