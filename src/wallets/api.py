@@ -47,15 +47,16 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 
 @router.get(
     "/{address}",
-    response=BaseResponseSchema[WalletModelSchema],
+    response=dict,
     summary="Validate a wallet by its address.",
     description="Validate and retrieve wallet information (including SOL balance) by providing the wallet address.",
 )
 async def wallet_validation(request, address: str):
     print(f"create_wallet: userID: ${request.user.id}")
-    is_valid = await SolanaService.validate_public_key()
+    is_valid = await SolanaService.validate_public_key(pub_key=address)
     balance = await SolanaService.get_balance(address)
+    print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
-        data=WalletModelSchema(address, isValid=is_valid, balance=balance),
+        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
         message="fetch wallet info successfully",
-    )
+    ).to_dict()
