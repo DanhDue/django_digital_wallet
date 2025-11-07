@@ -11,6 +11,8 @@ from .models import WalletModel
 
 router = Router(tags=["Wallets"])
 
+solana_service = SolanaService()
+
 
 @router.get(
     "",
@@ -20,7 +22,7 @@ router = Router(tags=["Wallets"])
     description="Fetch a list of all wallet instances associated with the authenticated user.",
 )
 def retrieve_wallet_list(request):
-    print(f"create_wallet: userID: ${request.user}")
+    print(f"create_wallet: userID: {request.user}")
     qs = WalletModel.objects.filter(user=request.user)
     return BaseResponseSchema[List[WalletModelSchema]](
         data=qs, message="fetch wallet list successfully"
@@ -38,7 +40,7 @@ def retrieve_wallet_list(request):
     ),
 )
 async def create_wallet(request, data: WalletModelCreationSchema):
-    wallet = await SolanaService.create_or_restore_wallet(data)
+    wallet = await solana_service.create_or_restore_wallet(data)
     return BaseResponseSchema[WalletModelSchema](
         data=wallet,
         message="fetch wallet info successfully",
@@ -52,9 +54,9 @@ async def create_wallet(request, data: WalletModelCreationSchema):
     description="Validate and retrieve wallet information (including SOL balance) by providing the wallet address.",
 )
 async def wallet_validation(request, address: str):
-    print(f"create_wallet: userID: ${request.user.id}")
-    is_valid = await SolanaService.validate_public_key(pub_key=address)
-    balance = await SolanaService.get_balance(address)
+    print(f"create_wallet: userID: {request.user.id}")
+    is_valid = await solana_service.validate_public_key(pub_key=address)
+    balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
         data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),

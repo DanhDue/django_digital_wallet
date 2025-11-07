@@ -14,16 +14,15 @@ LAMPORTS_PER_SOL = 1_000_000_000
 
 
 class SolanaService:
-    endpoint = "https://api.devnet.solana.com"
+    def __init__(self, endpoint="https://api.devnet.solana.com"):
+        self.endpoint = endpoint
 
-    @staticmethod
-    def create_keypair_from_seed_bytes(seed_bytes: bytes) -> Keypair:
+    def create_keypair_from_seed_bytes(self, seed_bytes: bytes) -> Keypair:
         return Keypair.from_seed(seed_bytes[:32])
 
-    @staticmethod
-    async def get_balance(address: str) -> float:
+    async def get_balance(self, address: str) -> float:
         async with AsyncClient(
-            SolanaService.endpoint,
+            self.endpoint,
             timeout=30.0,
         ) as client:
             pubkey = Pubkey.from_string(address)
@@ -31,10 +30,9 @@ class SolanaService:
             lamports = response.value
             return lamports / LAMPORTS_PER_SOL
 
-    @staticmethod
-    async def get_token_accounts(owner_address: str):
+    async def get_token_accounts(self, owner_address: str):
         async with AsyncClient(
-            SolanaService.endpoint,
+            self.endpoint,
             timeout=30.0,
         ) as client:
             owner = Pubkey.from_string(owner_address)
@@ -45,9 +43,8 @@ class SolanaService:
             json_data = json.dumps(accounts, indent=2)
             return json_data
 
-    @staticmethod
     def _create_wallet_model_from_keypair(
-        keypair: Keypair, mnemonics: str | None = None
+        self, keypair: Keypair, mnemonics: str | None = None
     ) -> WalletModelSchema:
         secret_bytes = bytes(keypair)
         return WalletModelSchema(
@@ -58,12 +55,11 @@ class SolanaService:
             balance=0,
         )
 
-    @staticmethod
-    def _restore_wallet_from_mnemonic(mnemonic: str) -> WalletModelSchema:
+    def _restore_wallet_from_mnemonic(self, mnemonic: str) -> WalletModelSchema:
         try:
             seed_bytes = Bip39SeedGenerator(mnemonic).Generate("optional-passphrase")
-            keypair = SolanaService.create_keypair_from_seed_bytes(seed_bytes)
-            return SolanaService._create_wallet_model_from_keypair(keypair, mnemonic)
+            keypair = self.create_keypair_from_seed_bytes(seed_bytes)
+            return self._create_wallet_model_from_keypair(keypair, mnemonic)
         except Exception as e:
             error_msg = (
                 "Failed to parse mnemonic: Invalid mnemonic checksum."
@@ -72,38 +68,33 @@ class SolanaService:
             )
             return WalletModelSchema(error=error_msg)
 
-    @staticmethod
-    def _restore_wallet_from_private_key(private_key: str) -> WalletModelSchema:
+    def _restore_wallet_from_private_key(self, private_key: str) -> WalletModelSchema:
         try:
             secret_key_bytes = bytes(json.loads(private_key))
             keypair = Keypair.from_bytes(secret_key_bytes)
-            return SolanaService._create_wallet_model_from_keypair(keypair)
+            return self._create_wallet_model_from_keypair(keypair)
         except ValueError as e:
             print(f"Failed to parse secret key: {e}")
             return WalletModelSchema()
 
-    @staticmethod
-    def _restore_wallet_from_bs58_key(bs58_private_key: str) -> WalletModelSchema:
+    def _restore_wallet_from_bs58_key(self, bs58_private_key: str) -> WalletModelSchema:
         try:
             keypair = Keypair.from_base58_string(bs58_private_key)
-            return SolanaService._create_wallet_model_from_keypair(keypair)
+            return self._create_wallet_model_from_keypair(keypair)
         except Exception as e:
             print(f"Failed to parse bs58 private key: {e}")
             return WalletModelSchema()
 
-    @staticmethod
-    def _create_new_wallet() -> WalletModelSchema:
+    def _create_new_wallet(self) -> WalletModelSchema:
         generated_mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)
         seed_bytes = Bip39SeedGenerator(generated_mnemonic).Generate(
             "optional-passphrase"
         )
-        keypair = SolanaService.create_keypair_from_seed_bytes(seed_bytes)
-        return SolanaService._create_wallet_model_from_keypair(
-            keypair, str(generated_mnemonic)
-        )
+        keypair = self.create_keypair_from_seed_bytes(seed_bytes)
+        return self._create_wallet_model_from_keypair(keypair, str(generated_mnemonic))
 
-    @staticmethod
     async def create_or_restore_wallet(
+        self,
         data: WalletModelCreationSchema,
     ) -> WalletModelSchema:
         mnemonic = (data.mnemonics or "").strip()
@@ -111,18 +102,16 @@ class SolanaService:
         bs58_private_key = (data.bs58PrivateKey or "").strip()
 
         if mnemonic:
-            return SolanaService._restore_wallet_from_mnemonic(mnemonic)
+            return self._restore_wallet_from_mnemonic(mnemonic)
         elif private_key:
-            return SolanaService._restore_wallet_from_private_key(private_key)
+            return self._restore_wallet_from_private_key(private_key)
         elif bs58_private_key:
-            return SolanaService._restore_wallet_from_bs58_key(bs58_private_key)
+            return self._restore_wallet_from_bs58_key(bs58_private_key)
         else:
-            return SolanaService._create_new_wallet()
+            return self._create_new_wallet()
 
-    @staticmethod
-    async def verify_key_pair(pub_key: str, secret_key: str):
+    async def verify_key_pair(self, pub_key: str, secret_key: str):
         pass
 
-    @staticmethod
-    async def validate_public_key(pub_key: str) -> bool:
+    async def validate_public_key(self, pub_key: str) -> bool:
         return True
