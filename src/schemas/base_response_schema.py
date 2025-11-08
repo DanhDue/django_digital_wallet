@@ -7,9 +7,15 @@ T = TypeVar("T")
 
 
 class BaseResponseSchema(GenericModel, Generic[T]):
-
+    # Indicates whether the API request was successful
+    # True for success, False for failure
     success: bool = True
+
+    # Human-readable message describing the result
+    # Useful for displaying user feedback
     message: Optional[str] = None
+    
+    # returned schema for response
     data: Optional[T] = None
 
     model_config = {

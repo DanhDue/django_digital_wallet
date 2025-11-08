@@ -1,10 +1,10 @@
-from typing import List
+from typing import Any, List
 
 from ninja_extra import Router
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema
-from schemas.token_schemas import TokenSchema
+from schemas.token_schemas import TokenSchema, TransferTokenCreationSchema
 from services.solana_service import SolanaService
 
 router = Router(tags=["Tokens"])
@@ -72,14 +72,32 @@ async def close_token_account():
     pass
 
 
-@router.get(
+@router.post(
     "/transfer",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
     summary="Transfer tokens to another wallet.",
     description=("Transfer tokens to another wallet."),
 )
-async def transfer_tokens():
-    print("")
-    pass
+async def transfer_tokens(request, data: TransferTokenCreationSchema):
+    print(f"transfer_tokens(request, data: {data})")
+    if data.is_preview:
+        result = await solana_service.prepare_to_transfer_sol(
+            sender_base58_private_key=data.bs58_private_key,
+            recipient_address=data.recipient,
+            amount=data.amount,
+        )
+    else:
+        result = await solana_service.send_sol(
+            sender_base58_private_key=data.bs58_private_key,
+            recipient_address=data.recipient,
+            amount=data.amount,
+        )
+
+    return BaseResponseSchema[Any](
+        data=result,
+        message="❌ Transaction failed.transfer tokens successfully.",
+    ).to_dict()
 
 
 @router.post(
@@ -103,7 +121,7 @@ async def create_token(request):
 async def get_mint_token(request, mint_address):
     print(f"get_mint_token(request, mint_address: {mint_address})")
     mint_token_info = await solana_service.get_mint_token(mint_address=mint_address)
-    return BaseResponseSchema(
+    return BaseResponseSchema[Any](
         data=mint_token_info,
         message="fetch mint token info successfully",
     ).to_dict()

@@ -3,6 +3,42 @@ from typing import Optional
 from ninja import Schema
 
 
+class TransferTokenCreationSchema(Schema):
+    bs58_private_key: Optional[str] = None
+    recipient: Optional[str] = None
+
+    # Amount transferred in token units (not accounting for decimals)
+    # Example: 1000000 for 1 USDC (6 decimals)
+    amount: Optional[float] = None
+
+    # SPL Token mint address
+    # Identifies the specific token contract
+    mint_address: Optional[str] = None  # mint_address is None => Transfer Solana.
+
+    # Token symbol (e.g., "SOL", "ZEO")
+    # For display purposes
+    symbol: Optional[str] = None
+
+    # Token name (e.g., "Solana", "Zeno")
+    # Full name of the token
+    name: Optional[str] = None
+
+    # Number of decimal places for the token
+    # Used for proper amount formatting
+    # Decimal of Sol is LAMPORTS_PER_SOL.
+    # transfer_amount = 10_000_000_000  => 10 tokens with 9 decimals
+    decimals: Optional[int] = None
+
+    # Indicates whether the API request for calculate fee action or transfer action.
+    # True for fee calculations, False for send_transaction(transfering doing).
+    is_preview: Optional[bool] = False
+
+    model_config = {
+        "from_attributes": True,
+        "exclude_none": True,
+    }
+
+
 class TokenSchema(Schema):
     address: str
     mintAuthority: str

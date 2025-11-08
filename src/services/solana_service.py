@@ -1,27 +1,59 @@
+from inspect import signature
 import json
+import time
 
 import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
+from solana.constants import LAMPORTS_PER_SOL
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from spl.token._layouts import MINT_LAYOUT
 from spl.token.constants import TOKEN_PROGRAM_ID
 from spl.token.core import MintInfo
+from solders.system_program import transfer, TransferParams
+from solders.transaction import VersionedTransaction
+from solders.message import MessageV0
 
-from schemas.token_schemas import MintTokenSchema
+from schemas.token_schemas import MintTokenSchema, TransferTokenCreationSchema
 from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
-
-LAMPORTS_PER_SOL = 1_000_000_000
+from schemas.transaction_schemas import TransactionSchema
 
 
 class SolanaService:
     def __init__(self, endpoint="https://api.devnet.solana.com"):
         self.endpoint = endpoint
 
+    def sol_to_lamports(self, sol_amount: float) -> int:
+        return int(sol_amount * LAMPORTS_PER_SOL)
+
+    def lamports_to_sol(self, lamports: int) -> float:
+        return lamports / LAMPORTS_PER_SOL
+
     def create_keypair_from_seed_bytes(self, seed_bytes: bytes) -> Keypair:
         return Keypair.from_seed(seed_bytes[:32])
+
+    def create_keypair_from_private_key(self, private_key: str) -> Keypair | None:
+        try:
+            secret_key_bytes = bytes(json.loads(private_key))
+            return Keypair.from_bytes(secret_key_bytes)
+        except ValueError as e:
+            print(f"Failed to parse secret key: {e}")
+            return None
+
+    def create_keypair_from_base58_private_key(
+        self, base58_private_key: str
+    ) -> Keypair | None:
+        try:
+            print(
+                f"create_keypair_from_base58_private_key(self, base58_private_key: {base58_private_key})"
+            )
+            secret_key_bytes = bytes(base58.b58decode(base58_private_key))
+            return Keypair.from_bytes(secret_key_bytes)
+        except Exception as e:
+            print(f"Invalid base58 private key: {e}")
+            return None
 
     async def airdrop(self, address: str, amount: float = 5.0) -> dict:
         async with AsyncClient(
@@ -30,16 +62,13 @@ class SolanaService:
         ) as client:
             try:
                 pubkey = Pubkey.from_string(address)
-                res = await client.request_airdrop(
-                    pubkey, int(amount * LAMPORTS_PER_SOL)
-                )
+                res = await client.request_airdrop(pubkey, self.sol_to_lamports(amount))
                 print(f"Airdrop signature: {res.value}")
                 new_balance = await client.get_balance(pubkey)
-                lamports = new_balance.value
-                sol = lamports / LAMPORTS_PER_SOL
-                print(f"Balance: {sol} SOL")
                 return WalletModelSchema(
-                    address=address, balance=sol, signature=str(res.value)
+                    address=address,
+                    balance=self.lamports_to_sol(new_balance.value),
+                    signature=str(res.value),
                 )
             except Exception as e:
                 return WalletModelSchema(
@@ -54,7 +83,7 @@ class SolanaService:
             pubkey = Pubkey.from_string(address)
             response = await client.get_balance(pubkey)
             lamports = response.value
-            return lamports / LAMPORTS_PER_SOL
+            return self.lamports_to_sol(lamports)
 
     async def get_token_accounts(self, owner_address: str):
         async with AsyncClient(
@@ -96,8 +125,7 @@ class SolanaService:
 
     def _restore_wallet_from_private_key(self, private_key: str) -> WalletModelSchema:
         try:
-            secret_key_bytes = bytes(json.loads(private_key))
-            keypair = Keypair.from_bytes(secret_key_bytes)
+            keypair = self.create_keypair_from_private_key(private_key=private_key)
             return self._create_wallet_model_from_keypair(keypair)
         except ValueError as e:
             print(f"Failed to parse secret key: {e}")
@@ -176,3 +204,155 @@ class SolanaService:
     def validate_public_key(self, wallet_address: str) -> bool:
         key = Pubkey.from_string(wallet_address)
         return key.is_on_curve()
+
+    async def _prepare_sol_transfer_information(
+        self,
+        sender_base58_private_key: str,
+        recipient_address: str,
+        amount: float,
+        client: AsyncClient,
+    ):
+        sender = self.create_keypair_from_base58_private_key(sender_base58_private_key)
+        recipient = Pubkey.from_string(recipient_address)
+        transfer_amount = self.sol_to_lamports(amount)
+        latest_blockhash = await client.get_latest_blockhash()
+        transfer_instruction = transfer(
+            TransferParams(
+                from_pubkey=sender.pubkey(),
+                to_pubkey=recipient,
+                lamports=transfer_amount,
+            )
+        )
+        message = MessageV0.try_compile(
+            payer=sender.pubkey(),
+            instructions=[transfer_instruction],
+            address_lookup_table_accounts=[],
+            recent_blockhash=latest_blockhash.value.blockhash,
+        )
+        return sender, recipient, transfer_amount, message
+
+    async def prepare_to_transfer_sol(
+        self,
+        sender_base58_private_key: str,
+        recipient_address: str,
+        amount: float,
+    ) -> TransactionSchema:
+        async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            try:
+                sender, _, _, message = await self._prepare_sol_transfer_information(
+                    sender_base58_private_key, recipient_address, amount, client
+                )
+                fee_response = await client.get_fee_for_message(message)
+                fee_lamports = fee_response.value
+                fee_sol = self.lamports_to_sol(fee_lamports)
+
+                return TransactionSchema(
+                    sender=sender.pubkey(),
+                    recipient=recipient_address,
+                    amount=amount,
+                    fee_lamports=fee_lamports,
+                    fee_sol=fee_sol,
+                    status="prepared",
+                )
+            except Exception as e:
+                return TransactionSchema(
+                    sender=sender.pubkey(),
+                    recipient=recipient_address,
+                    amount=amount,
+                    status=str(e),
+                )
+
+    async def send_sol(
+        self,
+        sender_base58_private_key: str,
+        recipient_address: str,
+        amount: float,
+    ) -> TransactionSchema:
+        async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            try:
+                sender, recipient, transfer_amount, message = (
+                    await self._prepare_sol_transfer_information(
+                        sender_base58_private_key, recipient_address, amount, client
+                    )
+                )
+
+                fee_response = await client.get_fee_for_message(message)
+                fee_lamports = fee_response.value
+                fee_sol = self.lamports_to_sol(fee_lamports)
+
+                transaction = VersionedTransaction(message, [sender])
+                send_response = await client.send_transaction(transaction)
+                signature = send_response.value
+
+                # Wait for confirmation
+                confirmation = await client.confirm_transaction(
+                    signature,
+                    commitment="confirmed",
+                )
+
+                print(f"Transaction confirmed: {confirmation.value}")
+
+                # Verify the transaction was successful
+                if confirmation.value[0].err is None:
+                    print("✅ Transaction successful!")
+
+                    # Check balances after transaction
+                    sender_balance = await client.get_balance(sender.pubkey())
+                    recipient_balance = await client.get_balance(recipient)
+
+                    print(
+                        f"Sender new balance: {self.lamports_to_sol(sender_balance.value)} SOL"
+                    )
+                    print(
+                        f"Recipient new balance: {self.lamports_to_sol(recipient_balance.value)} SOL"
+                    )
+
+                    return TransactionSchema(
+                        sender=sender.pubkey(),
+                        recipient=recipient_address,
+                        signature=str(signature),
+                        status="confirmed",
+                        amount=amount,
+                        total_sol=amount + fee_sol,
+                        total_lamports=transfer_amount + fee_lamports,
+                        fee_sol=fee_sol,
+                        fee_lamports=fee_lamports,
+                        token="Solana",
+                        symbol="SOL",
+                        destination="out",
+                        timestamp=int(time.time()),
+                    )
+                else:
+                    print(f"❌ Transaction failed: {confirmation.value[0].err}")
+                    return TransactionSchema(
+                        sender=sender.pubkey(),
+                        recipient=recipient_address,
+                        signature=str(signature),
+                        status="failed",
+                        amount=amount,
+                        token="Solana",
+                        symbol="SOL",
+                        destination="out",
+                        timestamp=int(time.time()),
+                        error=str(confirmation.value[0].err),
+                    )
+
+            except Exception as e:
+                return TransactionSchema(
+                    sender=sender.pubkey(),
+                    recipient=recipient_address,
+                    signature=str(signature),
+                    status="failed",
+                    amount=amount,
+                    token="Solana",
+                    symbol="SOL",
+                    destination="out",
+                    timestamp=int(time.time()),
+                    error=str(e),
+                )
+
+    async def send_tokens(self):
+        pass
+
+    async def calculate_transaction_cost(self):
+        pass
