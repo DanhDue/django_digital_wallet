@@ -18,19 +18,19 @@ router = Router(tags=["Wallets"])
 solana_service = SolanaService()
 
 
-@router.get(
-    "",
-    response=BaseResponseSchema[List[WalletModelSchema]],
-    auth=helpers.api_auth_user_required,
-    summary="Retrieve all wallets by user",
-    description="Fetch a list of all wallet instances associated with the authenticated user.",
+@router.post(
+    "/airdrop",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
+    summary="Airdrop SOL to wallet",
+    description="Request an airdrop of SOL tokens to a specific wallet address",
 )
-def retrieve_wallet_list(request):
-    print(f"create_wallet: userID: {request.user}")
-    qs = WalletModel.objects.filter(user=request.user)
-    return BaseResponseSchema[List[WalletModelSchema]](
-        data=qs, message="fetch wallet list successfully"
-    )
+async def airdrop(request, data: WalletAirdropSchema):
+    print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
+    result = await solana_service.airdrop(address=data.address, amount=data.amount)
+    return BaseResponseSchema[Any](
+        data=result, message="airdrop successfully"
+    ).to_dict()
 
 
 @router.post(
@@ -52,6 +52,21 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 
 
 @router.get(
+    "",
+    response=BaseResponseSchema[List[WalletModelSchema]],
+    auth=helpers.api_auth_user_required,
+    summary="Retrieve all wallets by user",
+    description="Fetch a list of all wallet instances associated with the authenticated user.",
+)
+def retrieve_wallet_list(request):
+    print(f"create_wallet: userID: {request.user}")
+    qs = WalletModel.objects.filter(user=request.user)
+    return BaseResponseSchema[List[WalletModelSchema]](
+        data=qs, message="fetch wallet list successfully"
+    )
+
+
+@router.get(
     "/{address}",
     response=dict,
     auth=helpers.api_auth_user_or_anon,
@@ -66,19 +81,4 @@ async def wallet_validation(request, address: str):
     return BaseResponseSchema[WalletModelSchema](
         data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
         message="fetch wallet info successfully",
-    ).to_dict()
-
-
-@router.post(
-    "/airdrop",
-    response=dict,
-    auth=helpers.api_auth_user_or_anon,
-    summary="Airdrop solana to a wallet",
-    description="Airdrop solana to a wallet.",
-)
-async def airdrop(request, data: WalletAirdropSchema):
-    print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
-    result = await solana_service.airdrop(address=data.address, amount=data.amount)
-    return BaseResponseSchema[Any](
-        data=result, message="airdrop successfully"
     ).to_dict()

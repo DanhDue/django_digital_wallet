@@ -34,10 +34,12 @@ class SolanaService:
                     pubkey, int(amount * LAMPORTS_PER_SOL)
                 )
                 print(f"Airdrop signature: {res.value}")
-                new_balance = await client.get_balance(address)
-                print(f"Balance: {new_balance.value} SOL")
+                new_balance = await client.get_balance(pubkey)
+                lamports = new_balance.value
+                sol = lamports / LAMPORTS_PER_SOL
+                print(f"Balance: {sol} SOL")
                 return WalletModelSchema(
-                    address=address, balance=new_balance, signature=res.value
+                    address=address, balance=sol, signature=str(res.value)
                 )
             except Exception as e:
                 return WalletModelSchema(
@@ -170,7 +172,7 @@ class SolanaService:
             except Exception as e:
                 print(f"Get mint token info from Solana is error: {e}")
                 return MintTokenSchema(error=f"Solana return: {e}")
-            
+
     def validate_public_key(self, wallet_address: str) -> bool:
         key = Pubkey.from_string(wallet_address)
         return key.is_on_curve()

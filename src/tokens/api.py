@@ -12,44 +12,6 @@ router = Router(tags=["Tokens"])
 solana_service = SolanaService()
 
 
-@router.get(
-    "/{mint_address}",
-    response=dict,
-    auth=helpers.api_auth_user_or_anon,
-    summary="Get information about mint token.",
-    description=("Get information about mint token."),
-)
-async def get_mint_token(request, mint_address):
-    print(f"get_mint_token(request, mint_address: {mint_address})")
-    mint_token_info = await solana_service.get_mint_token(mint_address=mint_address)
-    return BaseResponseSchema(
-        data=mint_token_info,
-        message="fetch mint token info successfully",
-    ).to_dict()
-
-
-@router.post(
-    "",
-    response=BaseResponseSchema[List[TokenSchema]],
-    auth=helpers.api_auth_user_or_anon,
-    summary="Create a new SPL token.",
-    description=("Create a new SPL token."),
-)
-async def create_token(request):
-    pass
-
-
-@router.delete(
-    "",
-    response=BaseResponseSchema[List[TokenSchema]],
-    auth=helpers.api_auth_user_or_anon,
-    summary="Burn SPL tokens.",
-    description=("Burn SPL tokens."),
-)
-async def burn_token(request):
-    pass
-
-
 @router.post(
     "/mint",
     summary="Mint more SPL tokens.",
@@ -70,6 +32,16 @@ async def set_authority(request, address: str):
     pass
 
 
+@router.post(
+    "/account",
+    summary="Create a token account for a SPL token.",
+    description=("Create a token account for a SPL token."),
+)
+async def create_token_account():
+    print("")
+    pass
+
+
 @router.get(
     "/account",
     summary="Get the token account for a SPL token.",
@@ -80,12 +52,12 @@ async def get_token_account():
     pass
 
 
-@router.post(
-    "/account",
-    summary="Create a token account for a SPL token.",
-    description=("Create a token account for a SPL token."),
+@router.get(
+    "/accounts",
+    summary="Get all token accounts by owner.",
+    description=("Get all token accounts by owner."),
 )
-async def create_token_account():
+async def get_all_token_accounts():
     print("")
     pass
 
@@ -101,20 +73,48 @@ async def close_token_account():
 
 
 @router.get(
-    "/accounts",
-    summary="Get all token accounts by owner.",
-    description=("Get all token accounts by owner."),
-)
-async def get_all_token_accounts():
-    print("")
-    pass
-
-
-@router.get(
     "/transfer",
     summary="Transfer tokens to another wallet.",
     description=("Transfer tokens to another wallet."),
 )
 async def transfer_tokens():
     print("")
+    pass
+
+
+@router.post(
+    "",
+    response=BaseResponseSchema[List[TokenSchema]],
+    auth=helpers.api_auth_user_or_anon,
+    summary="Create a new SPL token.",
+    description=("Create a new SPL token."),
+)
+async def create_token(request):
+    pass
+
+
+@router.get(
+    "/{mint_address}",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
+    summary="Get information about mint token.",
+    description=("Get information about mint token."),
+)
+async def get_mint_token(request, mint_address):
+    print(f"get_mint_token(request, mint_address: {mint_address})")
+    mint_token_info = await solana_service.get_mint_token(mint_address=mint_address)
+    return BaseResponseSchema(
+        data=mint_token_info,
+        message="fetch mint token info successfully",
+    ).to_dict()
+
+
+@router.delete(
+    "",
+    response=BaseResponseSchema[List[TokenSchema]],
+    auth=helpers.api_auth_user_or_anon,
+    summary="Burn SPL tokens.",
+    description=("Burn SPL tokens."),
+)
+async def burn_token(request):
     pass
