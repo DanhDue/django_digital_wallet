@@ -53,13 +53,18 @@ async def get_token_account():
 
 
 @router.get(
-    "/accounts",
+    "/accounts/{owner_address}",
+    auth=helpers.api_auth_user_or_anon,
+    response=dict,
     summary="Get all token accounts by owner.",
     description=("Get all token accounts by owner."),
 )
-async def get_all_token_accounts():
-    print("")
-    pass
+async def get_all_token_accounts(request, owner_address):
+    print(f"get_all_token_accounts(request, {owner_address})")
+    result = await solana_service.retrieve_token_accounts(owner_address)
+    return BaseResponseSchema(
+        data=result, message="Get token accounts successfully."
+    ).to_dict()
 
 
 @router.delete(
@@ -81,27 +86,39 @@ async def close_token_account():
 )
 async def transfer_tokens(request, data: TransferTokenCreationSchema):
     print(f"transfer_tokens(request, data: {data})")
-    if data.is_preview:
-        result = await solana_service.prepare_to_transfer_sol(
-            sender_base58_private_key=data.bs58_private_key,
-            recipient_address=data.recipient,
-            amount=data.amount,
-        )
-    else:
-        result = await solana_service.send_sol(
-            sender_base58_private_key=data.bs58_private_key,
-            recipient_address=data.recipient,
-            amount=data.amount,
-        )
+    mint_address = (data.mint_address or "").strip()
+    if mint_address:
+        print("mint_address", mint_address)
+        return BaseResponseSchema[Any](
+            message=(
+                "✅ Prepare tokens transfering successfully."
+                if data.is_preview
+                else "✅ Transfer tokens successfully."
+            ),
+        ).to_dict()
 
-    return BaseResponseSchema[Any](
-        data=result,
-        message=(
-            "✅ Prepare tokens transfering successfully."
-            if data.is_preview
-            else "✅ Transfer tokens successfully."
-        ),
-    ).to_dict()
+    else:
+        if data.is_preview:
+            result = await solana_service.prepare_to_transfer_sol(
+                sender_base58_private_key=data.bs58_private_key,
+                recipient_address=data.recipient,
+                amount=data.amount,
+            )
+        else:
+            result = await solana_service.send_sol(
+                sender_base58_private_key=data.bs58_private_key,
+                recipient_address=data.recipient,
+                amount=data.amount,
+            )
+
+        return BaseResponseSchema[Any](
+            data=result,
+            message=(
+                "✅ Prepare tokens transfering successfully."
+                if data.is_preview
+                else "✅ Transfer tokens successfully."
+            ),
+        ).to_dict()
 
 
 @router.post(

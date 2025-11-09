@@ -55,9 +55,11 @@ class TokenSchema(Schema):
 
 class MintTokenSchema(Schema):
     address: Optional[str] = None
+    owner: Optional[str] = None
+    lamports: Optional[int] = None
     decimals: Optional[int] = None
     supply: Optional[int] = None
-    is_initialized: Optional[bool] = None
+    is_initialized: Optional[int] = None
     mint_authority: Optional[str] = None
     freeze_authority: Optional[str] = None
     error: Optional[str] = None
