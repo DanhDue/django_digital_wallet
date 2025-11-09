@@ -31,7 +31,7 @@ class TransferTokenCreationSchema(Schema):
 
     # Indicates whether the API request for calculate fee action or transfer action.
     # True for fee calculations, False for send_transaction(transfering doing).
-    is_preview: Optional[bool] = False
+    is_preview: Optional[bool] = True
 
     model_config = {
         "from_attributes": True,

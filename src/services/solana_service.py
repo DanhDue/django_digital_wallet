@@ -247,7 +247,7 @@ class SolanaService:
                 fee_sol = self.lamports_to_sol(fee_lamports)
 
                 return TransactionSchema(
-                    sender=sender.pubkey(),
+                    sender=str(sender.pubkey()),
                     recipient=recipient_address,
                     amount=amount,
                     fee_lamports=fee_lamports,
@@ -256,7 +256,7 @@ class SolanaService:
                 )
             except Exception as e:
                 return TransactionSchema(
-                    sender=sender.pubkey(),
+                    sender=str(sender.pubkey()),
                     recipient=recipient_address,
                     amount=amount,
                     status=str(e),
@@ -295,20 +295,8 @@ class SolanaService:
                 # Verify the transaction was successful
                 if confirmation.value[0].err is None:
                     print("✅ Transaction successful!")
-
-                    # Check balances after transaction
-                    sender_balance = await client.get_balance(sender.pubkey())
-                    recipient_balance = await client.get_balance(recipient)
-
-                    print(
-                        f"Sender new balance: {self.lamports_to_sol(sender_balance.value)} SOL"
-                    )
-                    print(
-                        f"Recipient new balance: {self.lamports_to_sol(recipient_balance.value)} SOL"
-                    )
-
                     return TransactionSchema(
-                        sender=sender.pubkey(),
+                        sender=str(sender.pubkey()),
                         recipient=recipient_address,
                         signature=str(signature),
                         status="confirmed",
@@ -319,34 +307,34 @@ class SolanaService:
                         fee_lamports=fee_lamports,
                         token="Solana",
                         symbol="SOL",
-                        destination="out",
+                        direction="out",
                         timestamp=int(time.time()),
                     )
                 else:
                     print(f"❌ Transaction failed: {confirmation.value[0].err}")
                     return TransactionSchema(
-                        sender=sender.pubkey(),
+                        sender=str(sender.pubkey()),
                         recipient=recipient_address,
                         signature=str(signature),
                         status="failed",
                         amount=amount,
                         token="Solana",
                         symbol="SOL",
-                        destination="out",
+                        direction="out",
                         timestamp=int(time.time()),
                         error=str(confirmation.value[0].err),
                     )
 
             except Exception as e:
                 return TransactionSchema(
-                    sender=sender.pubkey(),
+                    sender=str(sender.pubkey()),
                     recipient=recipient_address,
                     signature=str(signature),
                     status="failed",
                     amount=amount,
                     token="Solana",
                     symbol="SOL",
-                    destination="out",
+                    direction="out",
                     timestamp=int(time.time()),
                     error=str(e),
                 )

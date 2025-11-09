@@ -96,7 +96,11 @@ async def transfer_tokens(request, data: TransferTokenCreationSchema):
 
     return BaseResponseSchema[Any](
         data=result,
-        message="❌ Transaction failed.transfer tokens successfully.",
+        message=(
+            "✅ Prepare tokens transfering successfully."
+            if data.is_preview
+            else "✅ Transfer tokens successfully."
+        ),
     ).to_dict()
 
 
