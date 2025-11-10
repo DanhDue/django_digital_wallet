@@ -39,6 +39,16 @@ class TransferTokenCreationSchema(Schema):
     }
 
 
+class TokenAccountCreationSchema(Schema):
+    bs58_private_key: Optional[str] = None
+    mint_token: Optional[str] = None
+
+    model_config = {
+        "from_attributes": True,
+        "exclude_none": True,
+    }
+
+
 class TokenSchema(Schema):
     address: str
     mintAuthority: str
@@ -101,6 +111,8 @@ class TokenAccountSchema(Schema):
     mint_token: Optional[MintTokenSchema] = None
 
     account_owner: Optional[str] = None
+
+    error: Optional[str] = None
 
     model_config = {
         "from_attributes": True,

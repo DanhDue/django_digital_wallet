@@ -4,7 +4,11 @@ from ninja_extra import Router
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema
-from schemas.token_schemas import TokenSchema, TransferTokenCreationSchema
+from schemas.token_schemas import (
+    TokenSchema,
+    TransferTokenCreationSchema,
+    TokenAccountCreationSchema,
+)
 from services.solana_service import SolanaService
 
 router = Router(tags=["Tokens"])
@@ -34,12 +38,17 @@ async def set_authority(request, address: str):
 
 @router.post(
     "/account",
-    summary="Create a token account for a SPL token.",
-    description=("Create a token account for a SPL token."),
+    auth=helpers.api_auth_user_or_anon,
+    response=dict,
+    summary="Create a new token account for a SPL token.",
+    description=("Create a new token account for a SPL token."),
 )
-async def create_token_account():
-    print("")
-    pass
+async def create_token_account(request, data: TokenAccountCreationSchema):
+    print(f"create_token_account(request, data: {data})")
+    result = await solana_service.create_token_account(data=data)
+    return BaseResponseSchema(
+        data=result, message="✅ Create a new SPL token account successfully."
+    ).to_dict()
 
 
 @router.get(
@@ -89,13 +98,24 @@ async def transfer_tokens(request, data: TransferTokenCreationSchema):
     mint_address = (data.mint_address or "").strip()
     if mint_address:
         print("mint_address", mint_address)
-        return BaseResponseSchema[Any](
-            message=(
-                "✅ Prepare tokens transfering successfully."
-                if data.is_preview
-                else "✅ Transfer tokens successfully."
-            ),
-        ).to_dict()
+        if data.is_preview:
+            result = await solana_service.prepare_to_transfer_spl_tokens(data=data)
+            print("result", result)
+            return BaseResponseSchema[Any](
+                message=(
+                    "✅ Prepare tokens transfering successfully."
+                    if data.is_preview
+                    else "✅ Transfer tokens successfully."
+                ),
+            ).to_dict()
+        else:
+            return BaseResponseSchema[Any](
+                message=(
+                    "✅ Prepare tokens transfering successfully."
+                    if data.is_preview
+                    else "✅ Transfer tokens successfully."
+                ),
+            ).to_dict()
 
     else:
         if data.is_preview:
