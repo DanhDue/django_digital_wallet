@@ -55,23 +55,15 @@ class TokenSchema(Schema):
 
 class MintTokenSchema(Schema):
     address: Optional[str] = None
-    owner: Optional[str] = None
-    lamports: Optional[int] = None
     data_length: Optional[int] = None
     decimals: Optional[int] = None
     supply: Optional[int] = None
     is_initialized: Optional[int] = None
     mint_authority: Optional[str] = None
-    freeze_authority: Optional[str] = None
     update_authority: Optional[str] = None
     name: Optional[str] = None
     symbol: Optional[str] = None
     uri: Optional[str] = None
-    seller_fee_basis_points: Optional[int] = None
-    creators: Optional[List[Any]] = None
-    verified: Optional[List[Any]] = None
-    share: Optional[List[Any]] = None
-    primary_sale_happened: Optional[bool] = None
     is_mutable: Optional[bool] = None
     error: Optional[str] = None
 
@@ -82,17 +74,12 @@ class MintTokenSchema(Schema):
 
 
 class TokenMetaDataSchema(Schema):
-    update_authority: Optional[str] = None
     mint: Optional[str] = None
     name: Optional[str] = None
     symbol: Optional[str] = None
     uri: Optional[str] = None
-    seller_fee_basis_points: Optional[int] = None
-    creators: Optional[List[Any]] = None
-    verified: Optional[List[Any]] = None
-    share: Optional[List[Any]] = None
-    primary_sale_happened: Optional[bool] = None
     is_mutable: Optional[bool] = None
+    update_authority: Optional[str] = None
 
     model_config = {
         "from_attributes": True,
@@ -102,26 +89,18 @@ class TokenMetaDataSchema(Schema):
 
 class TokenAccountSchema(Schema):
     address: Optional[str] = None
-    account_owner: Optional[str] = None
-    lamports: Optional[int] = None
-    data_length: Optional[int] = None
-    decimals: Optional[int] = None
-    supply: Optional[int] = None
-    is_initialized: Optional[int] = None
-    mint_authority: Optional[str] = None
-    freeze_authority: Optional[str] = None
-    mint: Optional[str] = None
     owner: Optional[str] = None
     amount: Optional[int] = None  # supple * decimals.
-    delegate_option: Optional[int] = None
-    delegate: Optional[str] = None
-    state: Optional[int] = None
-    is_native_option: Optional[int] = None
-    is_native: Optional[int] = None
-    delegated_amount: Optional[int] = None
-    close_authority_option: Optional[int] = None
-    close_authority: Optional[str] = None
-    token_meta_data: Optional[TokenMetaDataSchema] = None
+
+    is_initialized: Optional[int] = None
+
+    mint: Optional[str] = None
+    supply: Optional[int] = None
+    decimals: Optional[int] = None
+
+    mint_token: Optional[MintTokenSchema] = None
+
+    account_owner: Optional[str] = None
 
     model_config = {
         "from_attributes": True,

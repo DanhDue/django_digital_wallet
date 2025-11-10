@@ -18,7 +18,6 @@ from solders.message import MessageV0
 
 from schemas.token_schemas import (
     MintTokenSchema,
-    TransferTokenCreationSchema,
     TokenMetaDataSchema,
     TokenAccountSchema,
 )
@@ -181,6 +180,8 @@ class SolanaService:
             timeout=30.0,
         ) as client:
             try:
+                print(f"get_mint_token(self, mint_address: {mint_address})")
+
                 mint_address_key = Pubkey.from_string(mint_address)
 
                 # Get account info
@@ -203,24 +204,18 @@ class SolanaService:
                 # fetch token meta data
                 token_meta_data = await self.get_token_metadata(mint_address)
 
+                print("token_meta_data", token_meta_data)
+
                 return MintTokenSchema(
                     address=mint_address,
-                    owner=str(account_info.value.owner),
-                    lamports=account_info.value.lamports,
                     decimals=mint_info.decimals,
                     supply=mint_info.supply,
                     is_initialized=mint_info.is_initialized,
                     mint_authority=str(authority_keypair),
-                    freeze_authority=str(freeze_authority_keypair),
                     update_authority=token_meta_data.update_authority,
                     name=token_meta_data.name,
                     symbol=token_meta_data.symbol,
                     uri=token_meta_data.uri,
-                    seller_fee_basis_points=token_meta_data.seller_fee_basis_points,
-                    creators=token_meta_data.creators,
-                    verified=token_meta_data.verified,
-                    share=token_meta_data.share,
-                    primary_sale_happened=token_meta_data.primary_sale_happened,
                     is_mutable=token_meta_data.is_mutable,
                 )
             except Exception as e:
@@ -365,6 +360,9 @@ class SolanaService:
                     error=str(e),
                 )
 
+    async def prepare_to_transfer_spl_tokens(self):
+        print("prepare_to_transfer_spl_tokens")
+
     async def send_tokens(self):
         print("send_tokens")
 
@@ -384,39 +382,17 @@ class SolanaService:
                 for account_info in response.value:
                     # Parse mint data using layout
                     account_data = ACCOUNT_LAYOUT.parse(account_info.account.data)
-                    mint_data = MINT_LAYOUT.parse(account_info.account.data)
                     token_meta_data = await self.get_mint_token(
                         mint_address=str(Pubkey.from_bytes(account_data.mint))
                     )
+                    print("token_meta_data", token_meta_data)
                     result.append(
                         TokenAccountSchema(
                             address=str(account_info.pubkey),
-                            account_owner=str(account_info.account.owner),
-                            lamports=account_info.account.lamports,
-                            data_length=len(account_info.account.data),
-                            decimals=mint_data.decimals,
-                            supply=mint_data.supply,
-                            is_initialized=mint_data.is_initialized,
-                            mint_authority=str(
-                                Pubkey.from_bytes(mint_data.mint_authority)
-                            ),
-                            freeze_authority=str(
-                                Pubkey.from_bytes(mint_data.freeze_authority)
-                            ),
-                            mint=str(Pubkey.from_bytes(account_data.mint)),
                             owner=str(Pubkey.from_bytes(account_data.owner)),
                             amount=account_data.amount,
-                            delegate_option=account_data.delegate_option,
-                            delegate=str(Pubkey.from_bytes(account_data.delegate)),
-                            state=account_data.state,
-                            is_native_option=account_data.is_native_option,
-                            is_native=account_data.is_native,
-                            delegated_amount=account_data.delegated_amount,
-                            close_authority_option=account_data.close_authority_option,
-                            close_authority=str(
-                                Pubkey.from_bytes(account_data.close_authority)
-                            ),
-                            token_meta_data=token_meta_data,
+                            account_owner=str(account_info.account.owner),
+                            mint_token=token_meta_data,
                         )
                     )
                 return result
@@ -495,17 +471,12 @@ class SolanaService:
             is_mutable = bool(data[i])
 
             return TokenMetaDataSchema(
-                update_authority=update_authority,
                 mint=mint,
                 name=name,
                 symbol=symbol,
                 uri=uri,
-                seller_fee_basis_points=fee,
-                creators=creators,
-                verified=verified,
-                share=share,
-                primary_sale_happened=primary_sale_happened,
                 is_mutable=is_mutable,
+                update_authority=update_authority,
             )
         except Exception as e:
             print(f"Error unpacking metadata: {e}")
