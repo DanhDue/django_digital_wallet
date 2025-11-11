@@ -1,3 +1,4 @@
+import asyncio
 import json
 import struct
 import time
@@ -626,6 +627,38 @@ class SolanaService:
                 error=str(e),
             )
 
+    async def _get_mint_details(self, client: AsyncClient, mint_address: str):
+        mint_address_key = Pubkey.from_string(mint_address)
+        
+        try:
+            mint_account_info_task = client.get_account_info(mint_address_key)
+            token_meta_data_task = self.get_token_metadata(mint_address)
+            
+            mint_account_info_resp, token_meta_data = await asyncio.gather(
+                mint_account_info_task, token_meta_data_task, return_exceptions=True
+            )
+
+            if isinstance(mint_account_info_resp, Exception):
+                print(f"Error fetching mint account info for {mint_address}: {mint_account_info_resp}")
+                return None, None
+            if isinstance(token_meta_data, Exception):
+                print(f"Error fetching token metadata for {mint_address}: {token_meta_data}")
+                return None, None
+            
+            mint_data = MINT_LAYOUT.parse(mint_account_info_resp.value.data)
+            mint_info = MintInfo(
+                mint_authority=mint_data.mint_authority,
+                supply=mint_data.supply,
+                decimals=mint_data.decimals,
+                is_initialized=mint_data.is_initialized,
+                freeze_authority=mint_data.freeze_authority,
+            )
+            
+            return mint_info, token_meta_data
+        except Exception as e:
+            print(f"Unexpected error in _get_mint_details for {mint_address}: {e}")
+            return None, None
+
     async def retrieve_token_accounts(
         self, owner_address: str
     ) -> List[TokenAccountSchema]:
@@ -633,30 +666,63 @@ class SolanaService:
             print(f"retrieve_token_accounts(owner_address: {owner_address})")
             try:
                 owner = Pubkey.from_string(owner_address)
-                # Get all token accounts by owner
                 response = await client.get_token_accounts_by_owner(
                     owner, TokenAccountOpts(program_id=TOKEN_PROGRAM_ID)
                 )
 
-                print("response", response)
-
                 result = []
+                if not response.value:
+                    return result
+
+                mint_addresses = set()
+                parsed_accounts_data = []
                 for account_info in response.value:
-                    # Parse mint data using layout
                     account_data = ACCOUNT_LAYOUT.parse(account_info.account.data)
-                    token_meta_data = await self.get_mint_token(
-                        mint_address=str(Pubkey.from_bytes(account_data.mint))
-                    )
-                    print("token_meta_data", token_meta_data)
-                    result.append(
-                        TokenAccountSchema(
-                            address=str(account_info.pubkey),
-                            owner=str(Pubkey.from_bytes(account_data.owner)),
-                            amount=account_data.amount,
-                            account_owner=str(account_info.account.owner),
-                            mint_token=token_meta_data,
+                    mint_address = str(Pubkey.from_bytes(account_data.mint))
+                    mint_addresses.add(mint_address)
+                    parsed_accounts_data.append({
+                        "account_info": account_info,
+                        "account_data": account_data,
+                        "mint_address": mint_address
+                    })
+
+                # Fetch all unique mint details concurrently
+                mint_details_tasks = [self._get_mint_details(client, ma) for ma in mint_addresses]
+                all_mint_details = await asyncio.gather(*mint_details_tasks)
+                
+                mint_details_map = {}
+                for i, mint_address in enumerate(list(mint_addresses)): # Convert set to list to maintain order
+                    mint_details_map[mint_address] = all_mint_details[i]
+
+                for account_data_item in parsed_accounts_data:
+                    account_info = account_data_item["account_info"]
+                    account_data = account_data_item["account_data"]
+                    mint_address = account_data_item["mint_address"]
+
+                    mint_info, token_meta_data = mint_details_map.get(mint_address, (None, None))
+
+                    if mint_info and token_meta_data:
+                        mint_token_schema = MintTokenSchema(
+                            address=mint_address,
+                            decimals=mint_info.decimals,
+                            supply=mint_info.supply,
+                            is_initialized=mint_info.is_initialized,
+                            mint_authority=str(Pubkey.from_bytes(mint_info.mint_authority)),
+                            update_authority=token_meta_data.update_authority,
+                            name=token_meta_data.name,
+                            symbol=token_meta_data.symbol,
+                            uri=token_meta_data.uri,
+                            is_mutable=token_meta_data.is_mutable,
                         )
-                    )
+                        result.append(
+                            TokenAccountSchema(
+                                address=str(account_info.pubkey),
+                                owner=str(Pubkey.from_bytes(account_data.owner)),
+                                amount=account_data.amount,
+                                account_owner=str(account_info.account.owner),
+                                mint_token=mint_token_schema,
+                            )
+                        )
                 return result
 
             except Exception as e:
