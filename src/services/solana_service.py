@@ -3,7 +3,8 @@ import json
 import struct
 import time
 import traceback
-from typing import List
+from typing import List, Dict, Any, Optional
+import aiohttp
 
 import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
@@ -221,9 +222,11 @@ class SolanaService:
                 _ = Pubkey.from_bytes(mint_info.freeze_authority)
 
                 # fetch token meta data
-                token_meta_data = await self.get_token_metadata(mint_address)
+                token_meta_data = await self.get_token_metadata(client, mint_address)
 
-                print("token_meta_data", token_meta_data)
+                meta_data_from_uri = await self.fetch_token_metadata_from_uri(
+                    token_meta_data.uri
+                )
 
                 return MintTokenSchema(
                     address=mint_address,
@@ -235,6 +238,7 @@ class SolanaService:
                     name=token_meta_data.name,
                     symbol=token_meta_data.symbol,
                     uri=token_meta_data.uri,
+                    logo=meta_data_from_uri.get("image"),
                     is_mutable=token_meta_data.is_mutable,
                 )
             except Exception as e:
@@ -450,17 +454,20 @@ class SolanaService:
                 )
                 if not existing_account.value:
                     required_for_dest_token_account_creation_fee = True
-                    token_account_creation_instruction = create_associated_token_account(
+                    token_account_creation_inst = create_associated_token_account(
                         payer=payer.pubkey(),
                         owner=receiver,
                         mint=mint_address,
                     )
+
                     token_account_creation_msg = Message.new_with_blockhash(
-                        instructions=[token_account_creation_instruction],
+                        instructions=[token_account_creation_inst],
                         payer=payer.pubkey(),
                         blockhash=recent_blockhash.value.blockhash,
                     )
-                    fee_response = await client.get_fee_for_message(token_account_creation_msg)
+                    fee_response = await client.get_fee_for_message(
+                        token_account_creation_msg
+                    )
                     token_account_creation_fee_lamports = fee_response.value
 
                 transfer_instruction = transfer_checked(
@@ -544,10 +551,12 @@ class SolanaService:
                             error="Destination token account does not exist. And `pay_for_patner_token_account_creation` is false."
                         )
 
-                    token_account_creation_instruction = create_associated_token_account(
-                        payer=payer.pubkey(),
-                        owner=receiver,
-                        mint=mint_address,
+                    token_account_creation_instruction = (
+                        create_associated_token_account(
+                            payer=payer.pubkey(),
+                            owner=receiver,
+                            mint=mint_address,
+                        )
                     )
                     instructions.append(token_account_creation_instruction)
 
@@ -627,37 +636,53 @@ class SolanaService:
                 error=str(e),
             )
 
-    async def _get_mint_details(self, client: AsyncClient, mint_address: str):
-        mint_address_key = Pubkey.from_string(mint_address)
-        
-        try:
-            mint_account_info_task = client.get_account_info(mint_address_key)
-            token_meta_data_task = self.get_token_metadata(mint_address)
-            
-            mint_account_info_resp, token_meta_data = await asyncio.gather(
-                mint_account_info_task, token_meta_data_task, return_exceptions=True
-            )
+    async def _get_all_mint_details(
+        self, client: AsyncClient, mint_addresses: List[str]
+    ):
+        mint_pubkeys = [Pubkey.from_string(ma) for ma in mint_addresses]
+        metadata_pubkeys = [self.get_nft_metadata_account(ma) for ma in mint_addresses]
 
-            if isinstance(mint_account_info_resp, Exception):
-                print(f"Error fetching mint account info for {mint_address}: {mint_account_info_resp}")
-                return None, None
-            if isinstance(token_meta_data, Exception):
-                print(f"Error fetching token metadata for {mint_address}: {token_meta_data}")
-                return None, None
-            
-            mint_data = MINT_LAYOUT.parse(mint_account_info_resp.value.data)
-            mint_info = MintInfo(
-                mint_authority=mint_data.mint_authority,
-                supply=mint_data.supply,
-                decimals=mint_data.decimals,
-                is_initialized=mint_data.is_initialized,
-                freeze_authority=mint_data.freeze_authority,
-            )
-            
-            return mint_info, token_meta_data
-        except Exception as e:
-            print(f"Unexpected error in _get_mint_details for {mint_address}: {e}")
-            return None, None
+        all_pubkeys = mint_pubkeys + metadata_pubkeys
+        all_accounts = await client.get_multiple_accounts(all_pubkeys)
+
+        mint_account_infos = all_accounts.value[: len(mint_pubkeys)]
+        metadata_account_infos = all_accounts.value[len(mint_pubkeys) :]
+
+        mint_details_map = {}
+        for i, mint_address in enumerate(mint_addresses):
+            mint_account_info = mint_account_infos[i]
+            metadata_account_info = metadata_account_infos[i]
+
+            if mint_account_info and metadata_account_info:
+                try:
+                    mint_data = MINT_LAYOUT.parse(mint_account_info.data)
+                    mint_info = MintInfo(
+                        mint_authority=mint_data.mint_authority,
+                        supply=mint_data.supply,
+                        decimals=mint_data.decimals,
+                        is_initialized=mint_data.is_initialized,
+                        freeze_authority=mint_data.freeze_authority,
+                    )
+
+                    token_meta_data = self.unpack_metadata_account(
+                        metadata_account_info.data
+                    )
+
+                    meta_data_from_uri = await self.fetch_token_metadata_from_uri(
+                        token_meta_data.uri
+                    )
+                    logo = meta_data_from_uri.get("image")
+
+                    if token_meta_data:
+                        mint_details_map[mint_address] = (
+                            mint_info,
+                            token_meta_data,
+                            logo,
+                        )
+                except Exception as e:
+                    print(f"Error processing mint details for {mint_address}: {e}")
+
+        return mint_details_map
 
     async def retrieve_token_accounts(
         self, owner_address: str
@@ -680,38 +705,41 @@ class SolanaService:
                     account_data = ACCOUNT_LAYOUT.parse(account_info.account.data)
                     mint_address = str(Pubkey.from_bytes(account_data.mint))
                     mint_addresses.add(mint_address)
-                    parsed_accounts_data.append({
-                        "account_info": account_info,
-                        "account_data": account_data,
-                        "mint_address": mint_address
-                    })
+                    parsed_accounts_data.append(
+                        {
+                            "account_info": account_info,
+                            "account_data": account_data,
+                            "mint_address": mint_address,
+                        }
+                    )
 
-                # Fetch all unique mint details concurrently
-                mint_details_tasks = [self._get_mint_details(client, ma) for ma in mint_addresses]
-                all_mint_details = await asyncio.gather(*mint_details_tasks)
-                
-                mint_details_map = {}
-                for i, mint_address in enumerate(list(mint_addresses)): # Convert set to list to maintain order
-                    mint_details_map[mint_address] = all_mint_details[i]
+                mint_details_map = await self._get_all_mint_details(
+                    client, list(mint_addresses)
+                )
 
                 for account_data_item in parsed_accounts_data:
                     account_info = account_data_item["account_info"]
                     account_data = account_data_item["account_data"]
                     mint_address = account_data_item["mint_address"]
 
-                    mint_info, token_meta_data = mint_details_map.get(mint_address, (None, None))
+                    if mint_address in mint_details_map:
+                        mint_info, token_meta_data, logo = mint_details_map[
+                            mint_address
+                        ]
 
-                    if mint_info and token_meta_data:
                         mint_token_schema = MintTokenSchema(
                             address=mint_address,
                             decimals=mint_info.decimals,
                             supply=mint_info.supply,
                             is_initialized=mint_info.is_initialized,
-                            mint_authority=str(Pubkey.from_bytes(mint_info.mint_authority)),
+                            mint_authority=str(
+                                Pubkey.from_bytes(mint_info.mint_authority)
+                            ),
                             update_authority=token_meta_data.update_authority,
                             name=token_meta_data.name,
                             symbol=token_meta_data.symbol,
                             uri=token_meta_data.uri,
+                            logo=logo,
                             is_mutable=token_meta_data.is_mutable,
                         )
                         result.append(
@@ -745,7 +773,7 @@ class SolanaService:
         pda, _bump_seed = Pubkey.find_program_address(seeds, METADATA_PROGRAM_ID)
         return pda
 
-    def unpack_metadata_account(self, data: bytes) -> dict | None:
+    def unpack_metadata_account(self, data: bytes) -> TokenMetaDataSchema | None:
         """
         Unpacks and parses the raw byte data of an NFT metadata account on the Solana blockchain.
 
@@ -813,31 +841,27 @@ class SolanaService:
             return None
 
     async def get_token_metadata(
-        self, mint: str, retries: int = 3
+        self, client: AsyncClient, mint: str, retries: int = 3
     ) -> TokenMetaDataSchema | None:
         """
         Fetches and returns the metadata for a given NFT mint key on the Solana blockchain.
         Includes a retry mechanism for fetching the account information.
 
         Args:
+            client (AsyncClient): The Solana RPC client.
             mint (str): The public key of the NFT's mint account.
             retries (int): The number of times to retry fetching the account info.
 
         Returns:
             dict: A dictionary containing the NFT metadata, or None if it fails.
         """
-        async with AsyncClient(self.endpoint, timeout=30.0) as client:
-            nft_pda = self.get_nft_metadata_account(mint)
-            for attempt in range(retries):
-                try:
-                    acc_info = await client.get_account_info(nft_pda)
-                    if acc_info and acc_info.value:
-                        return self.unpack_metadata_account(acc_info.value.data)
-                except Exception as e:
-                    print(f"Attempt {attempt + 1} failed: {e}")
-                    if attempt + 1 == retries:
-                        return None
-        return None
+        nft_pda = self.get_nft_metadata_account(mint)
+        try:
+            acc_info = await client.get_account_info(nft_pda)
+            if acc_info and acc_info.value:
+                return self.unpack_metadata_account(acc_info.value.data)
+        except Exception as e:
+            return None
 
     async def create_token_account(
         self, data: TokenAccountCreationSchema
@@ -851,12 +875,18 @@ class SolanaService:
                 )
 
                 payer = self.create_keypair_from_base58_private_key(
-                    data.owner_bs58_private_key
+                    data.payer_bs58_private_key
                 )
 
                 mint_address = Pubkey.from_string(data.mint_token)
 
-                # Get associated token account address
+                # Get mint token info first, as it's needed in both cases (exists or not)
+                mint_token = await self.get_mint_token(data.mint_token)
+                if mint_token.error:
+                    return TokenAccountSchema(
+                        error=f"Failed to get mint token info: {mint_token.error}"
+                    )
+
                 associated_token_account = get_associated_token_address(
                     owner.pubkey(), mint_address
                 )
@@ -867,9 +897,6 @@ class SolanaService:
                 if existing_account.value:
                     print("Token Account already exist.")
                     account_data = ACCOUNT_LAYOUT.parse(existing_account.value.data)
-
-                    mint_token = await self.get_mint_token(data.mint_token)
-
                     return TokenAccountSchema(
                         address=str(associated_token_account),
                         owner=str(owner.pubkey()),
@@ -879,30 +906,24 @@ class SolanaService:
                         mint_token=mint_token,
                     )
 
-                # Get latest blockhash
+                # If account does not exist, create it.
                 recent_blockhash_resp = await client.get_latest_blockhash()
                 recent_blockhash = recent_blockhash_resp.value.blockhash
 
-                # Create associated token account instruction
                 create_token_account_instruction = create_associated_token_account(
-                    payer=(payer.pubkey() if payer else owner.pubkey()),
+                    payer=payer.pubkey(),
                     owner=owner.pubkey(),
                     mint=mint_address,
                 )
 
-                # Create message
                 message = Message.new_with_blockhash(
                     instructions=[create_token_account_instruction],
-                    payer=(payer.pubkey() if payer else owner.pubkey()),
+                    payer=payer.pubkey(),
                     blockhash=recent_blockhash,
                 )
 
-                # Create transaction
-                transaction = Transaction(
-                    ([owner] if not payer else [owner, payer]),
-                    message,
-                    recent_blockhash,
-                )
+                # The payer is the owner, so only one signer.
+                transaction = Transaction([payer], message, recent_blockhash)
 
                 fee_response = await client.get_fee_for_message(message)
                 fee_lamports = fee_response.value
@@ -918,7 +939,6 @@ class SolanaService:
 
                 if confirmation.value and confirmation.value[0].err is None:
                     print("Token account created successfully!")
-                    mint_token = await self.get_mint_token(data.mint_token)
                     return TokenAccountSchema(
                         address=str(associated_token_account),
                         owner=str(owner.pubkey()),
@@ -927,7 +947,6 @@ class SolanaService:
                         fee_lamports=fee_lamports,
                         fee_sol=fee_sol,
                     )
-
                 else:
                     error_msg = (
                         confirmation.value[0].err
@@ -941,3 +960,53 @@ class SolanaService:
                 print(f"Error creating token account: {e}")
                 traceback.print_exc()
                 return TokenAccountSchema(error=str(e))
+
+    async def fetch_token_metadata_from_uri(self, uri: str) -> Optional[Dict[str, Any]]:
+        try:
+            normalized_uri = self.normalize_metadata_uri(uri)
+            print(f"Fetching metadata from: {normalized_uri}")
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (compatible; MetadataFetcher/1.0)",
+                "Accept": "application/json, text/plain, */*",
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    normalized_uri, timeout=30, headers=headers
+                ) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        content = content.strip()
+                        try:
+                            metadata = json.loads(content)
+                            return metadata
+                        except json.JSONDecodeError as e:
+                            print(f"❌ JSON decode error: {e}")
+                            print(f"Raw content: {content[:200]}...")
+                            return None
+                    else:
+                        print(f"❌ HTTP {response.status} from {uri}")
+                        return None
+
+        except Exception as e:
+            print(f"❌ Error fetching metadata from {uri}: {e}")
+            return None
+
+    def normalize_metadata_uri(self, uri: str) -> str:
+        if uri.startswith("ipfs://"):
+            # convert ipfs://Qm... → https://ipfs.io/ipfs/Qm...
+            ipfs_hash = uri.replace("ipfs://", "")
+            return f"https://ipfs.io/ipfs/{ipfs_hash}"
+
+        elif uri.startswith("ar://"):
+            # convert ar://... → https://arweave.net/...
+            arweave_hash = uri.replace("ar://", "")
+            return f"https://arweave.net/{arweave_hash}"
+
+        elif uri.startswith("https://") or uri.startswith("http://"):
+            return uri
+
+        else:
+            # IPFS hash without prefix
+            return f"https://ipfs.io/ipfs/{uri}"

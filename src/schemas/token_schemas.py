@@ -79,6 +79,7 @@ class MintTokenSchema(Schema):
     name: Optional[str] = None
     symbol: Optional[str] = None
     uri: Optional[str] = None
+    logo: Optional[str] = None
     is_mutable: Optional[bool] = None
     error: Optional[str] = None
 
