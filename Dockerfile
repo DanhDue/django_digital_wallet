@@ -67,7 +67,7 @@ RUN python manage.py collectstatic --noinput
 # whitenoise -> s3
 
 # set the Django default project name
-ARG PROJ_NAME="home"
+ARG PROJ_NAME="zeno"
 
 # create a bash script to run the Django project
 # this script will execute at runtime when
@@ -75,7 +75,7 @@ ARG PROJ_NAME="home"
 RUN printf "#!/bin/bash\n" > ./paracord_runner.sh && \
     printf "RUN_PORT=\"\${PORT:-8000}\"\n\n" >> ./paracord_runner.sh && \
     printf "python manage.py migrate --no-input\n" >> ./paracord_runner.sh && \
-    printf "gunicorn ${PROJ_NAME}.wsgi:application --bind \"[::]:\$RUN_PORT\"\n" >> ./paracord_runner.sh
+    printf "uvicorn ${PROJ_NAME}.asgi:application --bind \"[::]:\$RUN_PORT\"\n" >> ./paracord_runner.sh
 
 # make the bash script executable
 RUN chmod +x paracord_runner.sh
