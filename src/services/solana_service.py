@@ -1,11 +1,10 @@
-import asyncio
 import json
 import struct
 import time
 import traceback
-from typing import List, Dict, Any, Optional
-import aiohttp
+from typing import Any, Dict, List, Optional
 
+import aiohttp
 import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
 from solana.constants import LAMPORTS_PER_SOL
@@ -758,31 +757,13 @@ class SolanaService:
                 return []
 
     def get_nft_metadata_account(self, mint_address: str) -> Pubkey:
-        """
-        Derives the Program Derived Address (PDA) for a given NFT mint key on Solana.
-        This PDA is used to locate the metadata account for an NFT on the Solana blockchain.
-
-        Args:
-            mint_address (str): The public key of the NFT's mint account, as a string.
-
-        Returns:
-            Pubkey: The derived Program Derived Address (PDA) associated with the NFT metadata.
-        """
         mint_pubkey = Pubkey.from_string(mint_address)
         seeds = [b"metadata", bytes(METADATA_PROGRAM_ID), bytes(mint_pubkey)]
-        pda, _bump_seed = Pubkey.find_program_address(seeds, METADATA_PROGRAM_ID)
+        # pda, _bump_seed
+        pda, _ = Pubkey.find_program_address(seeds, METADATA_PROGRAM_ID)
         return pda
 
     def unpack_metadata_account(self, data: bytes) -> TokenMetaDataSchema | None:
-        """
-        Unpacks and parses the raw byte data of an NFT metadata account on the Solana blockchain.
-
-        Args:
-            data (bytes): Raw byte data containing NFT metadata.
-
-        Returns:
-            dict: A dictionary containing the unpacked metadata, or None if parsing fails.
-        """
         if not data or data[0] != 4:
             return None
 
@@ -843,18 +824,6 @@ class SolanaService:
     async def get_token_metadata(
         self, client: AsyncClient, mint: str, retries: int = 3
     ) -> TokenMetaDataSchema | None:
-        """
-        Fetches and returns the metadata for a given NFT mint key on the Solana blockchain.
-        Includes a retry mechanism for fetching the account information.
-
-        Args:
-            client (AsyncClient): The Solana RPC client.
-            mint (str): The public key of the NFT's mint account.
-            retries (int): The number of times to retry fetching the account info.
-
-        Returns:
-            dict: A dictionary containing the NFT metadata, or None if it fails.
-        """
         nft_pda = self.get_nft_metadata_account(mint)
         try:
             acc_info = await client.get_account_info(nft_pda)
