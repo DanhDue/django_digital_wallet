@@ -22,7 +22,6 @@ solana_service = SolanaService()
     description=("Mint more SPL tokens ~ issue additional shares(phát hành thêm)."),
 )
 async def mint_token(request, address: str):
-    print("get_token_mint(request, address: {address})")
     pass
 
 
@@ -32,7 +31,6 @@ async def mint_token(request, address: str):
     description=("Set new mint authority."),
 )
 async def set_authority(request, address: str):
-    print("get_token_mint(request, address: {address})")
     pass
 
 
@@ -44,7 +42,6 @@ async def set_authority(request, address: str):
     description=("Create a new token account for a SPL token."),
 )
 async def create_token_account(request, data: TokenAccountCreationSchema):
-    print(f"create_token_account(request, data: {data})")
     result = await solana_service.create_token_account(data=data)
     return BaseResponseSchema(
         data=result, message="Create a new SPL token account successfully."
@@ -57,7 +54,6 @@ async def create_token_account(request, data: TokenAccountCreationSchema):
     description=("Get the token account for a SPL token."),
 )
 async def get_token_account():
-    print("")
     pass
 
 
@@ -69,7 +65,6 @@ async def get_token_account():
     description=("Get all token accounts by owner."),
 )
 async def get_all_token_accounts(request, owner_address):
-    print(f"get_all_token_accounts(request, {owner_address})")
     result = await solana_service.retrieve_token_accounts(owner_address)
     return BaseResponseSchema(
         data=result, message="Get token accounts successfully."
@@ -82,7 +77,6 @@ async def get_all_token_accounts(request, owner_address):
     description=("Delete the token account for a SPL token."),
 )
 async def close_token_account():
-    print("")
     pass
 
 
@@ -94,54 +88,26 @@ async def close_token_account():
     description=("Transfer tokens to another wallet."),
 )
 async def transfer_tokens(request, data: TransferTokenCreationSchema):
-    print(f"transfer_tokens(request, data: {data})")
     mint_address = (data.mint_address or "").strip()
-    if mint_address:
-        print("mint_address", mint_address)
-        if data.is_preview:
-            result = await solana_service.prepare_to_transfer_spl_tokens(data=data)
-            return BaseResponseSchema[Any](
-                data=result,
-                message=(
-                    "Prepare tokens transfering successfully."
-                    if data.is_preview
-                    else "Transfer tokens successfully."
-                ),
-            ).to_dict()
-        else:
-            result = await solana_service.send_tokens(data=data)
-            print("result", result)
-            return BaseResponseSchema[Any](
-                data=result,
-                message=(
-                    "Prepare tokens transfering successfully."
-                    if data.is_preview
-                    else "Transfer tokens successfully."
-                ),
-            ).to_dict()
+    message = (
+        "Prepare tokens transfering successfully."
+        if data.is_preview
+        else "Transfer tokens successfully."
+    )
 
-    else:
-        if data.is_preview:
-            result = await solana_service.prepare_to_transfer_sol(
-                sender_base58_private_key=data.owner_bs58_private_key,
-                recipient_address=data.recipient,
-                amount=data.amount,
-            )
-        else:
-            result = await solana_service.send_sol(
-                sender_base58_private_key=data.owner_bs58_private_key,
-                recipient_address=data.recipient,
-                amount=data.amount,
-            )
+    service_methods = {
+        # (has_mint_address, is_preview)
+        (True, True): solana_service.prepare_to_transfer_spl_tokens,
+        (True, False): solana_service.send_tokens,
+        (False, True): solana_service.prepare_to_transfer_sol,
+        (False, False): solana_service.send_sol,
+    }
 
-        return BaseResponseSchema[Any](
-            data=result,
-            message=(
-                "Prepare tokens transfering successfully."
-                if data.is_preview
-                else "Transfer tokens successfully."
-            ),
-        ).to_dict()
+    has_mint_address = bool(mint_address)
+    service_method = service_methods[(has_mint_address, data.is_preview)]
+    result = await service_method(data=data)
+
+    return BaseResponseSchema[Any](data=result, message=message).to_dict()
 
 
 @router.post(
@@ -163,7 +129,6 @@ async def create_token(request):
     description=("Get information about mint token."),
 )
 async def get_mint_token(request, mint_address):
-    print(f"get_mint_token(request, mint_address: {mint_address})")
     mint_token_info = await solana_service.get_mint_token(mint_address=mint_address)
     return BaseResponseSchema[Any](
         data=mint_token_info,

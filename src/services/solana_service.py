@@ -19,10 +19,8 @@ from spl.token.constants import TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID
 from spl.token.core import MintInfo
 from spl.token.instructions import (
     TransferCheckedParams,
-    TransferParams,
     create_associated_token_account,
     get_associated_token_address,
-    transfer,
     transfer_checked,
 )
 
@@ -72,6 +70,17 @@ class SolanaService:
         except Exception as e:
             print(f"Invalid base58 private key: {e}")
             return None
+
+    def _get_sender_pubkey_str(self, owner_bs58_private_key: str) -> str:
+        if not owner_bs58_private_key:
+            return ""
+        try:
+            keypair = self.create_keypair_from_base58_private_key(
+                owner_bs58_private_key
+            )
+            return str(keypair.pubkey()) if keypair else ""
+        except Exception:
+            return ""
 
     async def airdrop(self, address: str, amount: float = 5.0) -> dict:
         async with AsyncClient(
@@ -261,54 +270,68 @@ class SolanaService:
         )
         return sender, transfer_amount, message
 
+    async def _prepare_sol_transfer(
+        self,
+        data: TransferTokenCreationSchema,
+        client: AsyncClient,
+    ):
+        sender_base58_private_key = data.owner_bs58_private_key
+        recipient_address = data.recipient
+        amount = data.amount
+
+        sender, transfer_amount, message = await self._prepare_sol_transfer_information(
+            sender_base58_private_key, recipient_address, amount, client
+        )
+
+        fee_response = await client.get_fee_for_message(message)
+        fee_lamports = fee_response.value
+        fee_sol = self.lamports_to_sol(fee_lamports)
+
+        return sender, transfer_amount, message, fee_lamports, fee_sol
+
     async def prepare_to_transfer_sol(
         self,
-        sender_base58_private_key: str,
-        recipient_address: str,
-        amount: float,
+        data: TransferTokenCreationSchema,
     ) -> TransactionSchema:
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
             try:
-                sender, _, message = await self._prepare_sol_transfer_information(
-                    sender_base58_private_key, recipient_address, amount, client
+                sender, _, _, fee_lamports, fee_sol = await self._prepare_sol_transfer(
+                    data, client
                 )
-                fee_response = await client.get_fee_for_message(message)
-                fee_lamports = fee_response.value
-                fee_sol = self.lamports_to_sol(fee_lamports)
 
                 return TransactionSchema(
                     sender=str(sender.pubkey()),
-                    recipient=recipient_address,
-                    amount=amount,
+                    recipient=data.recipient,
+                    amount=data.amount,
                     fee_lamports=fee_lamports,
                     fee_sol=fee_sol,
                     status="prepared",
                 )
             except Exception as e:
+                sender_pubkey_str = self._get_sender_pubkey_str(
+                    data.owner_bs58_private_key
+                )
                 return TransactionSchema(
-                    sender=str(sender.pubkey()),
-                    recipient=recipient_address,
-                    amount=amount,
+                    sender=sender_pubkey_str,
+                    recipient=data.recipient,
+                    amount=data.amount,
                     status=str(e),
                 )
 
     async def send_sol(
         self,
-        sender_base58_private_key: str,
-        recipient_address: str,
-        amount: float,
+        data: TransferTokenCreationSchema,
     ) -> TransactionSchema:
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            signature = None
             try:
-                sender, transfer_amount, message = (
-                    await self._prepare_sol_transfer_information(
-                        sender_base58_private_key, recipient_address, amount, client
-                    )
-                )
-
-                fee_response = await client.get_fee_for_message(message)
-                fee_lamports = fee_response.value
-                fee_sol = self.lamports_to_sol(fee_lamports)
+                (
+                    sender,
+                    transfer_amount,
+                    message,
+                    fee_lamports,
+                    fee_sol,
+                ) = await self._prepare_sol_transfer(data, client)
 
                 transaction = VersionedTransaction(message, [sender])
                 send_response = await client.send_transaction(transaction)
@@ -327,11 +350,11 @@ class SolanaService:
                     print("Transaction successful!")
                     return TransactionSchema(
                         sender=str(sender.pubkey()),
-                        recipient=recipient_address,
+                        recipient=data.recipient,
                         signature=str(signature),
                         status="confirmed",
-                        amount=amount,
-                        total_sol=amount + fee_sol,
+                        amount=data.amount,
+                        total_sol=data.amount + fee_sol,
                         total_lamports=transfer_amount + fee_lamports,
                         fee_sol=fee_sol,
                         fee_lamports=fee_lamports,
@@ -344,10 +367,10 @@ class SolanaService:
                     print(f"Transaction failed: {confirmation.value[0].err}")
                     return TransactionSchema(
                         sender=str(sender.pubkey()),
-                        recipient=recipient_address,
+                        recipient=data.recipient,
                         signature=str(signature),
                         status="failed",
-                        amount=amount,
+                        amount=data.amount,
                         token="Solana",
                         symbol="SOL",
                         direction="out",
@@ -356,12 +379,15 @@ class SolanaService:
                     )
 
             except Exception as e:
+                sender_pubkey_str = self._get_sender_pubkey_str(
+                    data.owner_bs58_private_key
+                )
                 return TransactionSchema(
-                    sender=str(sender.pubkey()),
-                    recipient=recipient_address,
-                    signature=str(signature),
+                    sender=sender_pubkey_str,
+                    recipient=data.recipient,
+                    signature=str(signature) if signature else None,
                     status="failed",
-                    amount=amount,
+                    amount=data.amount,
                     token="Solana",
                     symbol="SOL",
                     direction="out",
