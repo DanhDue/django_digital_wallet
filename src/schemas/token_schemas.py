@@ -4,8 +4,9 @@ from ninja import Schema
 
 
 class TransferTokenCreationSchema(Schema):
-    bs58_private_key: Optional[str] = None
-    recipient: Optional[str] = None
+    owner_bs58_private_key: str
+    payer_bs58_private_key: Optional[str] = None
+    recipient: str
 
     # Amount transferred in token units (not accounting for decimals)
     # Example: 1000000 for 1 USDC (6 decimals)
@@ -33,6 +34,9 @@ class TransferTokenCreationSchema(Schema):
     # True for fee calculations, False for send_transaction(transfering doing).
     is_preview: Optional[bool] = True
 
+    # Indicates that the token account creation fee for the destination account is paid on source account.
+    pay_for_patner_token_account_creation: Optional[bool] = False
+
     model_config = {
         "from_attributes": True,
         "exclude_none": True,
@@ -40,7 +44,8 @@ class TransferTokenCreationSchema(Schema):
 
 
 class TokenAccountCreationSchema(Schema):
-    bs58_private_key: Optional[str] = None
+    owner_bs58_private_key: Optional[str] = None
+    payer_bs58_private_key: Optional[str] = None
     mint_token: Optional[str] = None
 
     model_config = {
@@ -111,6 +116,14 @@ class TokenAccountSchema(Schema):
     mint_token: Optional[MintTokenSchema] = None
 
     account_owner: Optional[str] = None
+
+    # Token Account creation fee paid in SOL units
+    # This is the network fee required to process the transaction
+    fee_sol: Optional[float] = None
+
+    # Token Account creation fee paid in LAMPORTS units
+    # This is the network fee required to process the transaction
+    fee_lamports: Optional[int] = None
 
     error: Optional[str] = None
 

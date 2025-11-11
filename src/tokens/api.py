@@ -47,7 +47,7 @@ async def create_token_account(request, data: TokenAccountCreationSchema):
     print(f"create_token_account(request, data: {data})")
     result = await solana_service.create_token_account(data=data)
     return BaseResponseSchema(
-        data=result, message="✅ Create a new SPL token account successfully."
+        data=result, message="Create a new SPL token account successfully."
     ).to_dict()
 
 
@@ -100,33 +100,36 @@ async def transfer_tokens(request, data: TransferTokenCreationSchema):
         print("mint_address", mint_address)
         if data.is_preview:
             result = await solana_service.prepare_to_transfer_spl_tokens(data=data)
-            print("result", result)
             return BaseResponseSchema[Any](
+                data=result,
                 message=(
-                    "✅ Prepare tokens transfering successfully."
+                    "Prepare tokens transfering successfully."
                     if data.is_preview
-                    else "✅ Transfer tokens successfully."
+                    else "Transfer tokens successfully."
                 ),
             ).to_dict()
         else:
+            result = await solana_service.send_tokens(data=data)
+            print("result", result)
             return BaseResponseSchema[Any](
+                data=result,
                 message=(
-                    "✅ Prepare tokens transfering successfully."
+                    "Prepare tokens transfering successfully."
                     if data.is_preview
-                    else "✅ Transfer tokens successfully."
+                    else "Transfer tokens successfully."
                 ),
             ).to_dict()
 
     else:
         if data.is_preview:
             result = await solana_service.prepare_to_transfer_sol(
-                sender_base58_private_key=data.bs58_private_key,
+                sender_base58_private_key=data.owner_bs58_private_key,
                 recipient_address=data.recipient,
                 amount=data.amount,
             )
         else:
             result = await solana_service.send_sol(
-                sender_base58_private_key=data.bs58_private_key,
+                sender_base58_private_key=data.owner_bs58_private_key,
                 recipient_address=data.recipient,
                 amount=data.amount,
             )
@@ -134,9 +137,9 @@ async def transfer_tokens(request, data: TransferTokenCreationSchema):
         return BaseResponseSchema[Any](
             data=result,
             message=(
-                "✅ Prepare tokens transfering successfully."
+                "Prepare tokens transfering successfully."
                 if data.is_preview
-                else "✅ Transfer tokens successfully."
+                else "Transfer tokens successfully."
             ),
         ).to_dict()
 

@@ -1,41 +1,40 @@
-from typing import List
 import json
-import time
 import struct
+import time
 import traceback
+from typing import List
 
 import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
+from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
-from solana.constants import LAMPORTS_PER_SOL
 from solders.keypair import Keypair
+from solders.message import Message, MessageV0
 from solders.pubkey import Pubkey
-from spl.token._layouts import MINT_LAYOUT, ACCOUNT_LAYOUT
-from spl.token.constants import TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID
+from solders.system_program import TransferParams, transfer
+from solders.transaction import Transaction, VersionedTransaction
+from spl.token._layouts import ACCOUNT_LAYOUT, MINT_LAYOUT
+from spl.token.constants import TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID
 from spl.token.core import MintInfo
-from solders.system_program import transfer, TransferParams
-from solders.transaction import VersionedTransaction, Transaction
-from solders.message import MessageV0, Message
 from spl.token.instructions import (
-    get_associated_token_address,
-    transfer_checked,
     TransferCheckedParams,
-    create_associated_token_account,
-    transfer,
     TransferParams,
+    create_associated_token_account,
+    get_associated_token_address,
+    transfer,
+    transfer_checked,
 )
 
 from schemas.token_schemas import (
     MintTokenSchema,
+    TokenAccountCreationSchema,
+    TokenAccountSchema,
     TokenMetaDataSchema,
     TransferTokenCreationSchema,
-    TokenAccountSchema,
-    TokenAccountCreationSchema,
 )
-from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
 from schemas.transaction_schemas import TransactionSchema
-
+from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
 
 METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
 
@@ -208,7 +207,8 @@ class SolanaService:
                 )
 
                 authority_keypair = Pubkey.from_bytes(mint_info.mint_authority)
-                freeze_authority_keypair = Pubkey.from_bytes(mint_info.freeze_authority)
+                # freeze_authority_keypair
+                _ = Pubkey.from_bytes(mint_info.freeze_authority)
 
                 # fetch token meta data
                 token_meta_data = await self.get_token_metadata(mint_address)
@@ -228,8 +228,8 @@ class SolanaService:
                     is_mutable=token_meta_data.is_mutable,
                 )
             except Exception as e:
-                print(f"❌ Get mint token info from Solana is error: {e}")
-                return MintTokenSchema(error=f"❌ Solana return: {e}")
+                print(f"Get mint token info from Solana is error: {e}")
+                return MintTokenSchema(error=f"Solana return: {e}")
 
     def validate_public_key(self, wallet_address: str) -> bool:
         key = Pubkey.from_string(wallet_address)
@@ -324,7 +324,7 @@ class SolanaService:
 
                 # Verify the transaction was successful
                 if confirmation.value[0].err is None:
-                    print("✅ Transaction successful!")
+                    print("Transaction successful!")
                     return TransactionSchema(
                         sender=str(sender.pubkey()),
                         recipient=recipient_address,
@@ -341,7 +341,7 @@ class SolanaService:
                         timestamp=int(time.time()),
                     )
                 else:
-                    print(f"❌ Transaction failed: {confirmation.value[0].err}")
+                    print(f"Transaction failed: {confirmation.value[0].err}")
                     return TransactionSchema(
                         sender=str(sender.pubkey()),
                         recipient=recipient_address,
@@ -369,11 +369,21 @@ class SolanaService:
                     error=str(e),
                 )
 
-    async def prepare_to_transfer_spl_tokens(self, data: TransferTokenCreationSchema):
+    async def prepare_to_transfer_spl_tokens(
+        self, data: TransferTokenCreationSchema
+    ) -> TransactionSchema:
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
             print(f"prepare_to_transfer_spl_tokens(self, data: {data})")
-            # Example keypairs and addresses
-            owner = self.create_keypair_from_base58_private_key(data.bs58_private_key)
+
+            owner = self.create_keypair_from_base58_private_key(
+                data.owner_bs58_private_key
+            )
+
+            payer = (
+                self.create_keypair_from_base58_private_key(data.payer_bs58_private_key)
+                if data.payer_bs58_private_key
+                else None
+            )
             receiver = Pubkey.from_string(data.recipient)
 
             mint_address = Pubkey.from_string(data.mint_address)
@@ -391,7 +401,135 @@ class SolanaService:
                 token_program_id=TOKEN_PROGRAM_ID,
             )
 
-            print("source_token_account", source_token_account)
+            destination_token_account = get_associated_token_address(
+                owner=receiver,
+                mint=mint_address,
+                token_program_id=TOKEN_PROGRAM_ID,
+            )
+
+            # Get latest blockhash
+            recent_blockhash = await client.get_latest_blockhash()
+
+            # check if the account is not exist
+            token_account_creation_fee_lamports = None
+            token_account_creation_fee_sol = None
+
+            existing_account = await client.get_account_info(destination_token_account)
+            print("existing_account", existing_account)
+            if not existing_account.value:
+                print("Token Account is not exist.")
+                required_for_dest_token_account_creation_fee = True
+                # calculate the token acount creation fee.
+
+                # Create associated token account instruction
+                create_token_account_instruction = create_associated_token_account(
+                    payer=(payer.pubkey() if payer else owner.pubkey()),
+                    owner=owner.pubkey(),
+                    mint=mint_address,
+                )
+
+                # Create token account creation message
+                token_account_creation_message = Message.new_with_blockhash(
+                    instructions=[create_token_account_instruction],
+                    payer=(payer.pubkey() if payer else owner.pubkey()),
+                    blockhash=recent_blockhash.value.blockhash,
+                )
+
+                token_account_creation_fee_response = await client.get_fee_for_message(
+                    token_account_creation_message
+                )
+                token_account_creation_fee_lamports = (
+                    token_account_creation_fee_response.value
+                )
+                token_account_creation_fee_sol = self.lamports_to_sol(
+                    token_account_creation_fee_lamports
+                )
+
+            else:
+                print("Token Account already exist.")
+                account_data = ACCOUNT_LAYOUT.parse(existing_account.value.data)
+                print("account_data", account_data)
+                required_for_dest_token_account_creation_fee = False
+
+            # Create transfer checked instruction
+            transfer_instruction = transfer_checked(
+                TransferCheckedParams(
+                    program_id=TOKEN_PROGRAM_ID,
+                    source=source_token_account,
+                    mint=mint_address,
+                    dest=destination_token_account,
+                    owner=owner.pubkey(),
+                    amount=amount_to_transfer,
+                    decimals=decimals,
+                )
+            )
+
+            # Create message
+            message = MessageV0.try_compile(
+                payer=(payer.pubkey() if payer else owner.pubkey()),
+                instructions=[transfer_instruction],
+                address_lookup_table_accounts=[],
+                recent_blockhash=recent_blockhash.value.blockhash,
+            )
+
+            # Get fee for transaction
+            fee_response = await client.get_fee_for_message(message)
+            fee_lamports = fee_response.value
+            fee_sol = self.lamports_to_sol(fee_lamports)
+
+            return TransactionSchema(
+                sender=str(owner.pubkey()),
+                payer=(str(payer.pubkey()) if payer else str(owner.pubkey())),
+                recipient=str(receiver),
+                source=str(source_token_account),
+                destination=str(destination_token_account),
+                status="prepared",
+                latest_blockhash=str(recent_blockhash.value.blockhash),
+                amount=data.amount,
+                fee_sol=fee_sol,
+                fee_lamports=fee_lamports,
+                token_account_creation_fee_sol=(
+                    token_account_creation_fee_sol
+                    if token_account_creation_fee_sol
+                    else None
+                ),
+                token_account_creation_fee_lamports=(
+                    token_account_creation_fee_lamports
+                    if token_account_creation_fee_lamports
+                    else None
+                ),
+                direction="out",
+                required_for_dest_token_account_creation_fee=required_for_dest_token_account_creation_fee,
+            )
+
+    async def send_tokens(self, data: TransferTokenCreationSchema):
+        async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            print(f"send_tokens(self, data: {data})")
+            # Example keypairs and addresses
+            owner = self.create_keypair_from_base58_private_key(
+                data.owner_bs58_private_key
+            )
+            payer = (
+                self.create_keypair_from_base58_private_key(data.payer_bs58_private_key)
+                if data.payer_bs58_private_key
+                else None
+            )
+            receiver = Pubkey.from_string(data.recipient)
+
+            mint_address = Pubkey.from_string(data.mint_address)
+
+            # Token decimals retrieved from mint token
+            decimals = data.decimals
+
+            # Amount to transfer
+            amount_to_transfer = int(data.amount * (10**decimals))
+
+            # Get associated token addresses
+            source_token_account = get_associated_token_address(
+                owner=owner.pubkey(),
+                mint=mint_address,
+                token_program_id=TOKEN_PROGRAM_ID,
+            )
 
             destination_token_account = get_associated_token_address(
                 owner=receiver,
@@ -399,7 +537,17 @@ class SolanaService:
                 token_program_id=TOKEN_PROGRAM_ID,
             )
 
-            print("destination_token_account", destination_token_account)
+            # check if the account is not exist
+            existing_account = await client.get_account_info(destination_token_account)
+            if (
+                not existing_account.value
+                and data.pay_for_patner_token_account_creation
+            ):
+                await self.create_token_account(TokenAccountCreationSchema())
+            else:
+                # return error. No found payer.
+                if data.pay_for_patner_token_account_creation:
+                    return TransactionSchema(error="Payer not found.")
 
             # Create transfer checked instruction
             transfer_instruction = transfer_checked(
@@ -419,56 +567,77 @@ class SolanaService:
 
             # Create message
             message = MessageV0.try_compile(
-                payer=owner.pubkey(),
+                payer=(payer.pubkey() if payer else owner.pubkey()),
                 instructions=[transfer_instruction],
                 address_lookup_table_accounts=[],
                 recent_blockhash=recent_blockhash.value.blockhash,
             )
 
+            # Get fee for transaction
+            fee_response = await client.get_fee_for_message(message)
+            fee_lamports = fee_response.value
+            fee_sol = self.lamports_to_sol(fee_lamports)
+
+            # Create associated token account instruction
+            create_token_account_instruction = create_associated_token_account(
+                payer=(payer.pubkey() if payer else owner.pubkey()),
+                owner=owner.pubkey(),
+                mint=mint_address,
+            )
+
+            # Create token account creation message
+            token_account_creation_message = Message.new_with_blockhash(
+                instructions=[create_token_account_instruction],
+                payer=(payer.pubkey() if payer else owner.pubkey()),
+                blockhash=recent_blockhash.value.blockhash,
+            )
+
+            token_account_creation_fee_response = await client.get_fee_for_message(
+                token_account_creation_message
+            )
+            token_account_creation_fee_lamports = (
+                token_account_creation_fee_response.value
+            )
+            token_account_creation_fee_sol = self.lamports_to_sol(
+                token_account_creation_fee_lamports
+            )
+
             # Create transaction
-            transaction = VersionedTransaction(message, [owner])
+            transaction = VersionedTransaction(
+                message,
+                (
+                    [owner]
+                    if data.owner_bs58_private_key == data.payer_bs58_private_key
+                    else [payer, owner]
+                ),
+            )
 
-            print("transaction", transaction)
-
+            # Send transaction
             send_response = await client.send_transaction(transaction)
             signature = send_response.value
-            print(f"✅ Transaction sent! Signature: {signature}")
 
-            print("Waiting for confirmation...")
+            # Confirm transaction
             confirmation = await client.confirm_transaction(
                 signature, commitment="confirmed", sleep_seconds=1
             )
 
             if confirmation.value and confirmation.value[0].err is None:
-                print("✅ Token account created successfully!")
-
-                mint_token = await self.get_mint_token(data.mint_token)
-
-                return TokenAccountSchema(
-                    address=str(associated_token_account),
-                    owner=str(owner.pubkey()),
-                    mint=data.mint_token,
-                    mint_token=mint_token,
+                print("Prepare SPL token transfer successfully!")
+                return TransactionSchema(
+                    sender=str(owner.pubkey()),
+                    payer=str(payer.pubkey()) if payer else (str(owner.pubkey())),
+                    recipient=str(receiver),
+                    source=str(source_token_account),
+                    destination=str(destination_token_account),
+                    status="prepared",
+                    latest_blockhash=str(recent_blockhash.value.blockhash),
+                    amount=data.amount,
+                    fee_sol=fee_sol,
+                    fee_lamports=fee_lamports,
+                    token_account_creation_fee_sol=token_account_creation_fee_sol,
+                    token_account_creation_fee_lamports=token_account_creation_fee_lamports,
+                    direction="out",
                 )
-
-            print("confirmation", confirmation)
-
-            # Get fee for transaction
-            fee_response = await client.get_fee_for_message(message)
-
-            print(f"Transaction fee: {fee_response.value} lamports")
-            print(f"Transaction fee: {fee_response.value / 1_000_000_000} SOL")
-
-            print(f"Mint: {mint_address}")
-            print(f"Source: {source_token_account}")
-            print(f"Destination: {destination_token_account}")
-            print(f"Amount: {amount_to_transfer}")
-            print(f"Decimals: {decimals}")
-            print(f"Owner: {owner.pubkey()}")
-            print(f"Receiver: {receiver}")
-
-    async def send_tokens(self, data: TransferTokenCreationSchema):
-        print(f"send_tokens(self, data: {data})")
 
     async def retrieve_token_accounts(
         self, owner_address: str
@@ -555,7 +724,8 @@ class SolanaService:
             symbol, i = parse_string(data, i)
             uri, i = parse_string(data, i)
 
-            fee = struct.unpack_from("<h", data, i)[0]
+            # fee
+            _ = struct.unpack_from("<h", data, i)[0]
             i += 2
 
             creators, verified, share = [], [], []
@@ -572,7 +742,8 @@ class SolanaService:
                     share.append(data[i])
                     i += 1
 
-            primary_sale_happened = bool(data[i])
+            # primary_sale_happened
+            _ = bool(data[i])
             i += 1
             is_mutable = bool(data[i])
 
@@ -623,7 +794,11 @@ class SolanaService:
 
             try:
                 owner = self.create_keypair_from_base58_private_key(
-                    data.bs58_private_key
+                    data.owner_bs58_private_key
+                )
+
+                payer = self.create_keypair_from_base58_private_key(
+                    data.owner_bs58_private_key
                 )
 
                 mint_address = Pubkey.from_string(data.mint_token)
@@ -633,20 +808,12 @@ class SolanaService:
                     owner.pubkey(), mint_address
                 )
 
-                print(f"Payer/Owner: {owner.pubkey()}")
-                print(f"Mint: {mint_address}")
-                print(f"Associated Token Account: {associated_token_account}")
-
                 existing_account = await client.get_account_info(
                     associated_token_account
                 )
                 if existing_account.value:
-                    print("✅ Token account already exists")
-                    print("existing_account", existing_account)
-
+                    print("Token Account already exist.")
                     account_data = ACCOUNT_LAYOUT.parse(existing_account.value.data)
-
-                    print("account_data", account_data)
 
                     mint_token = await self.get_mint_token(data.mint_token)
 
@@ -655,6 +822,7 @@ class SolanaService:
                         owner=str(owner.pubkey()),
                         amount=account_data.amount,
                         account_owner=str(existing_account.value.owner),
+                        mint=data.mint_token,
                         mint_token=mint_token,
                     )
 
@@ -664,7 +832,7 @@ class SolanaService:
 
                 # Create associated token account instruction
                 create_token_account_instruction = create_associated_token_account(
-                    payer=owner.pubkey(),
+                    payer=(payer.pubkey() if payer else owner.pubkey()),
                     owner=owner.pubkey(),
                     mint=mint_address,
                 )
@@ -672,45 +840,51 @@ class SolanaService:
                 # Create message
                 message = Message.new_with_blockhash(
                     instructions=[create_token_account_instruction],
-                    payer=owner.pubkey(),
+                    payer=(payer.pubkey() if payer else owner.pubkey()),
                     blockhash=recent_blockhash,
                 )
 
                 # Create transaction
-                transaction = Transaction([owner], message, recent_blockhash)
+                transaction = Transaction(
+                    ([owner] if not payer else [owner, payer]),
+                    message,
+                    recent_blockhash,
+                )
 
-                print("Transaction created, sending to network...")
+                fee_response = await client.get_fee_for_message(message)
+                fee_lamports = fee_response.value
+                fee_sol = self.lamports_to_sol(fee_lamports)
 
                 send_response = await client.send_transaction(transaction)
                 signature = send_response.value
-                print(f"✅ Transaction sent! Signature: {signature}")
+                print(f"Transaction sent! Signature: {signature}")
 
-                print("Waiting for confirmation...")
                 confirmation = await client.confirm_transaction(
                     signature, commitment="confirmed", sleep_seconds=1
                 )
 
                 if confirmation.value and confirmation.value[0].err is None:
-                    print("✅ Token account created successfully!")
-
+                    print("Token account created successfully!")
                     mint_token = await self.get_mint_token(data.mint_token)
-
                     return TokenAccountSchema(
                         address=str(associated_token_account),
                         owner=str(owner.pubkey()),
                         mint=data.mint_token,
                         mint_token=mint_token,
+                        fee_lamports=fee_lamports,
+                        fee_sol=fee_sol,
                     )
+
                 else:
                     error_msg = (
                         confirmation.value[0].err
                         if confirmation.value
                         else "Unknown error"
                     )
-                    print(f"❌ Transaction failed: {error_msg}")
+                    print(f"Transaction failed: {error_msg}")
                     return TokenAccountSchema(error=str(error_msg))
 
             except Exception as e:
-                print(f"❌ Error creating token account: {e}")
+                print(f"Error creating token account: {e}")
                 traceback.print_exc()
                 return TokenAccountSchema(error=str(e))

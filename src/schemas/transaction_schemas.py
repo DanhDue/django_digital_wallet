@@ -7,6 +7,10 @@ class TransactionSchema(Schema):
     # Must be a valid base58-encoded Solana public key
     sender: Optional[str] = None
 
+    # The Solana wallet address that pay network fee for sent tokens.
+    # Must be a valid base58-encoded Solana public key
+    payer: Optional[str] = None
+
     # The Solana wallet address that will receive tokens.
     # Must be a valid base58-encoded Solana public key
     recipient: Optional[str] = None
@@ -45,6 +49,14 @@ class TransactionSchema(Schema):
     # This is the network fee required to process the transaction
     fee_lamports: Optional[int] = None
 
+    # Token account creation fee paid in SOL units
+    # This is the network fee required to process the transaction
+    token_account_creation_fee_sol: Optional[float] = None
+
+    # Token account creation fee paid in LAMPORTS units
+    # This is the network fee required to process the transaction
+    token_account_creation_fee_lamports: Optional[int] = None
+
     # Token name (e.g., "Solana", "Zeno")
     # Full name of the token
     token: Optional[str] = None
@@ -64,6 +76,8 @@ class TransactionSchema(Schema):
     # Error message if the transaction failed
     # Only populated when status is 'failed' or 'error'
     error: Optional[str] = None
+
+    required_for_dest_token_account_creation_fee: Optional[bool] = False
 
     model_config = {
         "from_attributes": True,
