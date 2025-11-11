@@ -12,7 +12,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import datetime
+import os
 from decouple import config
+import dj_database_url
+import django_heroku
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,15 +30,28 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DJANGO_DEBUG", cast=bool, default=False)
 
-ALLOWED_HOSTS = []
+DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+HEROKU_APP_NAME = config("HEROKU_APP_NAME", cast=str, default="").strip().lower()
+if HEROKU_APP_NAME:
+    DEFAULT_ALLOWED_HOSTS.append(f"{HEROKU_APP_NAME}.herokuapp.com")
+
 ENV_ALLOWED_HOSTS = config("ENV_ALLOWED_HOSTS", cast=str, default="")
-for origin in ENV_ALLOWED_HOSTS.split(","):
-    ALLOWED_HOSTS.append(f"{origin}".strip().lower())
+if ENV_ALLOWED_HOSTS:
+    DEFAULT_ALLOWED_HOSTS.extend(
+        origin.strip().lower()
+        for origin in ENV_ALLOWED_HOSTS.split(",")
+        if origin.strip()
+    )
+
+ALLOWED_HOSTS = list(dict.fromkeys(DEFAULT_ALLOWED_HOSTS))
 
 CSRF_TRUSTED_ORIGINS = [
     "http://*.railway.app",
     "https://*.railway.app",
+    "https://*.herokuapp.com",
 ]
+if HEROKU_APP_NAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{HEROKU_APP_NAME}.herokuapp.com")
 
 # Application definition
 
@@ -45,6 +61,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     # third parties
     "corsheaders",
@@ -59,6 +76,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -93,16 +111,18 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "zeno.wsgi.application"
+ASGI_APPLICATION = "zeno.asgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 
@@ -141,6 +161,22 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -151,3 +187,6 @@ NINJA_JWT = {
     "ACCESS_TOKEN_LIFETIME": datetime.timedelta(minutes=5),
     "REFRESH_TOKEN_LIFETIME": datetime.timedelta(days=1),
 }
+
+if not DEBUG:
+    django_heroku.settings(locals(), staticfiles=False)
