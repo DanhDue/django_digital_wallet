@@ -15,7 +15,24 @@ from .models import WalletModel
 
 router = Router(tags=["Wallets"])
 
+wallet_router_pre_release = Router(tags=["Wallets"])
+
 solana_service = SolanaService()
+
+
+@wallet_router_pre_release.post(
+    "/airdrop",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
+    summary="Airdrop SOL to wallet",
+    description="Request an airdrop of SOL tokens to a specific wallet address",
+)
+async def airdrop(request, data: WalletAirdropSchema):
+    print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
+    result = await solana_service.airdrop(address=data.address, amount=data.amount)
+    return BaseResponseSchema[Any](
+        data=result, message="airdrop successfully"
+    ).to_dict()
 
 
 @router.post(
@@ -30,6 +47,24 @@ async def airdrop(request, data: WalletAirdropSchema):
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
     return BaseResponseSchema[Any](
         data=result, message="airdrop successfully"
+    ).to_dict()
+
+
+@wallet_router_pre_release.post(
+    "",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
+    summary="Create or restore a wallet",
+    description=(
+        "Create a new wallet or restore an existing wallet for the user. "
+        "Allows both authenticated and anonymous users to generate or recover a wallet."
+    ),
+)
+async def create_wallet(request, data: WalletModelCreationSchema):
+    wallet = await solana_service.create_or_restore_wallet(data)
+    return BaseResponseSchema[WalletModelSchema](
+        data=wallet,
+        message="fetch wallet info successfully",
     ).to_dict()
 
 
@@ -64,6 +99,24 @@ def retrieve_wallet_list(request):
     return BaseResponseSchema[List[WalletModelSchema]](
         data=qs, message="fetch wallet list successfully"
     )
+
+
+@wallet_router_pre_release.get(
+    "/{address}",
+    response=dict,
+    auth=helpers.api_auth_user_or_anon,
+    summary="Validate a wallet by its address.",
+    description="Validate and retrieve wallet information (including SOL balance) by providing the wallet address.",
+)
+async def wallet_validation(request, address: str):
+    print(f"create_wallet: userID: {request.user.id}")
+    is_valid = solana_service.validate_public_key(wallet_address=address)
+    balance = await solana_service.get_balance(address)
+    print("balance", balance)
+    return BaseResponseSchema[WalletModelSchema](
+        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
+        message="fetch wallet info successfully",
+    ).to_dict()
 
 
 @router.get(
