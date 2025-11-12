@@ -40,10 +40,10 @@ COPY requirements.txt /tmp/requirements.txt
 ARG DJANGO_SECRET_KEY
 ENV DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
 
-ARG DJANGO_DEBUG
+ARG DJANGO_DEBUG=False
 ENV DJANGO_DEBUG=${DJANGO_DEBUG}
 
-ARG DATABASE_URL
+ARG DATABASE_URL=sqlite:///db.sqlite3
 ENV DATABASE_URL=${DATABASE_URL}
 
 ARG DJANGO_VERSION
@@ -76,7 +76,7 @@ ARG PROJ_NAME="zeno"
 RUN printf "#!/bin/bash\n" > ./paracord_runner.sh && \
     printf "RUN_PORT=\"\${PORT:-8000}\"\n\n" >> ./paracord_runner.sh && \
     printf "python manage.py migrate --no-input\n" >> ./paracord_runner.sh && \
-    printf "uvicorn zeno.asgi:application --host 0.0.0.0 --port $PORT\n" >> ./paracord_runner.sh
+    printf "uvicorn ${PROJ_NAME}.asgi:application --host 0.0.0.0 --port \$\${PORT:-8000} --reload\n" >> ./paracord_runner.sh
 
 # make the bash script executable
 RUN chmod +x paracord_runner.sh

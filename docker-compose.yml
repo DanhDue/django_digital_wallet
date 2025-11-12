@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   db:
@@ -24,13 +24,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-build-time-secret-key-not-for-production}
+        - DJANGO_DEBUG=${DJANGO_DEBUG:-False}
+        - DATABASE_URL=${DATABASE_URL:-sqlite:///db.sqlite3}
     container_name: zeno_web
     command: >
       sh -c "
         python manage.py migrate --noinput &&
         python manage.py collectstatic --noinput &&
-        uvicorn zeno.asgi:application --host 0.0.0.0 --port 8000 --reload
+        uvicorn zeno.asgi:application --host 0.0.0.0 --port $${PORT:-8000} --reload
       "
+    working_dir: /code
     volumes:
       - ./src:/code
       - static_volume:/code/staticfiles
@@ -40,8 +45,11 @@ services:
     env_file:
       - .env
     environment:
+      # Override DATABASE_URL to use PostgreSQL in docker-compose
+      # (ignores sqlite:///db.sqlite3 from .env file)
       - DATABASE_URL=postgresql://${POSTGRES_USER:-zeno_user}:${POSTGRES_PASSWORD:-zeno_password}@db:5432/${POSTGRES_DB:-zeno_db}
-      - DJANGO_DEBUG=${DJANGO_DEBUG:-True}
+      # All other variables (DJANGO_SECRET_KEY, DJANGO_DEBUG, ENV_ALLOWED_HOSTS, CORS_ALLOWED_ORIGINS)
+      # are loaded automatically from .env file via env_file directive above
       - PYTHONUNBUFFERED=1
     depends_on:
       db:
@@ -57,4 +65,3 @@ volumes:
 networks:
   zeno_network:
     driver: bridge
-
