@@ -11,10 +11,10 @@ from transactions.api import router as transactions_router
 from tokens.api import router as tokens_router
 from markets.api import router as markets_router
 
-api = NinjaExtraAPI(version="1.0.0")
-api.register_controllers(NinjaJWTDefaultController)
+api_v1 = NinjaExtraAPI(version="1.0.0")
+api_v1.register_controllers(NinjaJWTDefaultController)
 
-api.add_router("/wallets", wallets_router)
-api.add_router("/transactions", transactions_router)
-api.add_router("/tokens", tokens_router)
-api.add_router("/markets", markets_router)
+api_v1.add_router("/wallets", wallets_router)
+api_v1.add_router("/transactions", transactions_router)
+api_v1.add_router("/tokens", tokens_router)
+api_v1.add_router("/markets", markets_router)
