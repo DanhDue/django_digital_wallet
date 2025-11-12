@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: zeno_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zeno_db}
+      POSTGRES_USER: ${POSTGRES_USER:-zeno_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zeno_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zeno_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zeno_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zeno_web
+    command: >
+      sh -c "
+        python manage.py migrate --noinput &&
+        python manage.py collectstatic --noinput &&
+        uvicorn zeno.asgi:application --host 0.0.0.0 --port 8000 --reload
+      "
+    volumes:
+      - ./src:/code
+      - static_volume:/code/staticfiles
+      - media_volume:/code/media
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-zeno_user}:${POSTGRES_PASSWORD:-zeno_password}@db:5432/${POSTGRES_DB:-zeno_db}
+      - DJANGO_DEBUG=${DJANGO_DEBUG:-True}
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zeno_network
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+
+networks:
+  zeno_network:
+    driver: bridge
+

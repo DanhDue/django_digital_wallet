@@ -57,6 +57,7 @@ COPY ./src /code
 
 # Install the Python project requirements
 RUN pip install -r /tmp/requirements.txt
+RUN pip install uvicorn
 RUN pip install gunicorn
 
 # database isn't available during build
@@ -75,7 +76,7 @@ ARG PROJ_NAME="zeno"
 RUN printf "#!/bin/bash\n" > ./paracord_runner.sh && \
     printf "RUN_PORT=\"\${PORT:-8000}\"\n\n" >> ./paracord_runner.sh && \
     printf "python manage.py migrate --no-input\n" >> ./paracord_runner.sh && \
-    printf "uvicorn ${PROJ_NAME}.asgi:application --bind \"[::]:\$RUN_PORT\"\n" >> ./paracord_runner.sh
+    printf "uvicorn zeno.asgi:application --host 0.0.0.0 --port $PORT\n" >> ./paracord_runner.sh
 
 # make the bash script executable
 RUN chmod +x paracord_runner.sh
