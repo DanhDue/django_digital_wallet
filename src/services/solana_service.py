@@ -129,14 +129,19 @@ class SolanaService:
     def _create_wallet_model_from_keypair(
         self, keypair: Keypair, mnemonics: str | None = None
     ) -> WalletModelSchema:
-        secret_bytes = bytes(keypair)
-        return WalletModelSchema(
-            bs58PrivateKey=base58.b58encode(secret_bytes).decode(),
-            privateKey=str(list[int](secret_bytes)),
-            address=str(keypair.pubkey()),
-            mnemonics=mnemonics,
-            balance=0,
-        )
+        try:
+            secret_bytes = bytes(keypair)
+            return WalletModelSchema(
+                bs58PrivateKey=base58.b58encode(secret_bytes).decode(),
+                privateKey=str(list[int](secret_bytes)),
+                address=str(keypair.pubkey()),
+                mnemonics=mnemonics,
+                balance=0,
+            )
+        except Exception as e:
+            return WalletModelSchema(
+                error=f"Cannot create wallet model from keypair: {e}"
+            )
 
     def _restore_wallet_from_mnemonic(self, mnemonic: str) -> WalletModelSchema:
         try:
@@ -154,18 +159,22 @@ class SolanaService:
     def _restore_wallet_from_private_key(self, private_key: str) -> WalletModelSchema:
         try:
             keypair = self.create_keypair_from_private_key(private_key=private_key)
+            if not keypair:
+                raise ValueError("Cannot create keypair from the private key.")
             return self._create_wallet_model_from_keypair(keypair)
         except ValueError as e:
             print(f"Failed to parse secret key: {e}")
-            return WalletModelSchema()
+            return WalletModelSchema(error=f"Failed to parse secret key: {e}")
 
     def _restore_wallet_from_bs58_key(self, bs58_private_key: str) -> WalletModelSchema:
         try:
             keypair = Keypair.from_base58_string(bs58_private_key)
+            if keypair is None:
+                raise ValueError("Failed to parse bs58 private key.")
             return self._create_wallet_model_from_keypair(keypair)
         except Exception as e:
             print(f"Failed to parse bs58 private key: {e}")
-            return WalletModelSchema()
+            return WalletModelSchema(error=str(e))
 
     def _create_new_wallet(self) -> WalletModelSchema:
         generated_mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)

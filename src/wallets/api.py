@@ -63,7 +63,7 @@ async def airdrop(request, data: WalletAirdropSchema):
 async def create_wallet(request, data: WalletModelCreationSchema):
     wallet = await solana_service.create_or_restore_wallet(data)
     return BaseResponseSchema[WalletModelSchema](
-        data=wallet,
+        data=wallet.model_dump(exclude_none=True),
         message="fetch wallet info successfully",
     ).to_dict()
 
@@ -81,7 +81,7 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 async def create_wallet(request, data: WalletModelCreationSchema):
     wallet = await solana_service.create_or_restore_wallet(data)
     return BaseResponseSchema[WalletModelSchema](
-        data=wallet,
+        data=wallet.model_dump(exclude_none=True),
         message="fetch wallet info successfully",
     ).to_dict()
 

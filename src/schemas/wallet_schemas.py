@@ -12,20 +12,10 @@ class WalletModelCreationSchema(Schema):
     bs58PrivateKey: Optional[str] = None
     mnemonics: Optional[str] = None
 
-    model_config = {
-        "from_attributes": True,
-        "exclude_none": True,
-    }
-
 
 class WalletAirdropSchema(Schema):
     address: Optional[str] = None
     amount: Optional[float] = 5.0
-
-    model_config = {
-        "from_attributes": True,
-        "exclude_none": True,
-    }
 
 
 class WalletModelSchema(Schema):
@@ -44,8 +34,3 @@ class WalletModelSchema(Schema):
     error: Optional[str] = None
     error: Optional[str] = None
     signature: Optional[str] = None
-
-    model_config = {
-        "from_attributes": True,
-        "exclude_none": True,
-    }
