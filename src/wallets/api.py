@@ -30,8 +30,8 @@ solana_service = SolanaService()
 async def airdrop(request, data: WalletAirdropSchema):
     print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
-    return BaseResponseSchema[Any](
-        data=result, message="airdrop successfully"
+    return BaseResponseSchema[WalletModelSchema](
+        data=result.model_dump(exclude_none=True), message="airdrop successfully"
     ).to_dict()
 
 
@@ -45,8 +45,8 @@ async def airdrop(request, data: WalletAirdropSchema):
 async def airdrop(request, data: WalletAirdropSchema):
     print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
-    return BaseResponseSchema[Any](
-        data=result, message="airdrop successfully"
+    return BaseResponseSchema[WalletModelSchema](
+        data=result.model_dump(exclude_none=True), message="airdrop successfully"
     ).to_dict()
 
 
@@ -114,7 +114,9 @@ async def wallet_validation(request, address: str):
     balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
-        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
+        data=WalletModelSchema(
+            address=address, isValid=is_valid, balance=balance
+        ).model_dump(exclude_none=True),
         message="fetch wallet info successfully",
     ).to_dict()
 
@@ -132,6 +134,8 @@ async def wallet_validation(request, address: str):
     balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
-        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
+        data=WalletModelSchema(
+            address=address, isValid=is_valid, balance=balance
+        ).model_dump(exclude_none=True),
         message="fetch wallet info successfully",
     ).to_dict()

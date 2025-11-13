@@ -33,7 +33,7 @@ services:
       sh -c "
         python manage.py migrate --noinput &&
         python manage.py collectstatic --noinput &&
-        uvicorn zeno.asgi:application --host 0.0.0.0 --port $${PORT:-8000} --reload
+        uvicorn zeno.asgi:application --host 0.0.0.0 --port $${PORT:-8888} --reload
       "
     working_dir: /code
     volumes:
@@ -41,7 +41,7 @@ services:
       - static_volume:/code/staticfiles
       - media_volume:/code/media
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8888}:8888"
     env_file:
       - .env
     environment:

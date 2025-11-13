@@ -83,7 +83,7 @@ class SolanaService:
         except Exception:
             return ""
 
-    async def airdrop(self, address: str, amount: float = 5.0) -> dict:
+    async def airdrop(self, address: str, amount: float = 5.0) -> WalletModelSchema:
         async with AsyncClient(
             self.endpoint,
             timeout=30.0,
@@ -99,8 +99,10 @@ class SolanaService:
                     signature=str(res.value),
                 )
             except Exception as e:
+                new_balance = await client.get_balance(pubkey)
                 return WalletModelSchema(
-                    error=f"{e if (str(e) or "").strip() else 'Cannot airdrop now. Please try again.'}"
+                    balance=self.lamports_to_sol(new_balance.value),
+                    error=f"{e if (str(e) or "").strip() else 'Cannot airdrop now. Please try again.'}",
                 )
 
     async def get_balance(self, address: str) -> float:
