@@ -1,5 +1,9 @@
 import os
 
+from ninja_extra import Router
+
+from schemas.base_response_schema import BaseResponseSchema
+
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
 from ninja_extra import NinjaExtraAPI
@@ -11,7 +15,21 @@ from transactions.api import router as transactions_router
 from tokens.api import router as tokens_router, token_router_pre_release
 from markets.api import router as markets_router
 
-api_pre_release = NinjaExtraAPI(version="0.0.1")
+health_check_api = NinjaExtraAPI(version="0.0.1")
+health_check_api.register_controllers(NinjaJWTDefaultController)
+
+health_check_router = Router(tags=["Healthz"])
+
+
+@health_check_router.get("")
+def healthz(request):
+    return BaseResponseSchema(message="Your service is live 🎉").to_dict()
+
+
+health_check_api.add_router("", health_check_router)
+
+
+api_pre_release = NinjaExtraAPI(version="0.0.2")
 api_pre_release.register_controllers(NinjaJWTDefaultController)
 
 api_pre_release.add_router("/wallets", wallet_router_pre_release)
