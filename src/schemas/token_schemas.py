@@ -106,7 +106,7 @@ class TokenMetaDataSchema(Schema):
 class TokenAccountSchema(Schema):
     address: Optional[str] = None
     owner: Optional[str] = None
-    amount: Optional[int] = None  # supple * decimals.
+    amount: Optional[float] = None  # supple * decimals.
 
     is_initialized: Optional[int] = None
 

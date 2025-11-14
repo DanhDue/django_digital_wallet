@@ -752,11 +752,16 @@ class SolanaService:
                             logo=logo,
                             is_mutable=token_meta_data.is_mutable,
                         )
+
+                        token_amount = int(account_data.amount) / (
+                            10**mint_token_schema.decimals
+                        )
+
                         result.append(
                             TokenAccountSchema(
                                 address=str(account_info.pubkey),
                                 owner=str(Pubkey.from_bytes(account_data.owner)),
-                                amount=account_data.amount,
+                                amount=token_amount,
                                 account_owner=str(account_info.account.owner),
                                 mint_token=mint_token_schema,
                             )
