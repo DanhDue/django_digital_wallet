@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Django ASGI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": [
+                "uvicorn",
+                "zeno.asgi:application",
+                "--reload",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8888"
+            ],
+            "cwd": "${workspaceFolder}/src",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "django": true
+        }
+    ]
+}

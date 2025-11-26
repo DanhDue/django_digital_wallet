@@ -44,7 +44,7 @@ class TransferTokenCreationSchema(Schema):
 
 
 class TokenAccountCreationSchema(Schema):
-    owner_bs58_private_key: Optional[str] = None
+    owner: Optional[str] = None
     payer_bs58_private_key: Optional[str] = None
     mint_token: Optional[str] = None
 

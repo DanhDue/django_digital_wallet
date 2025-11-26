@@ -71,5 +71,7 @@
     "prettier.singleQuote": true,
     "prettier.trailingComma": "all",
     "prettier.tabWidth": 4,
-    "editor.parameterHints.enabled": true
+    "editor.parameterHints.enabled": true,
+    "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
+    "python.analysis.extraPaths": ["${workspaceFolder}/src"]
 }

@@ -31,7 +31,7 @@ async def airdrop(request, data: WalletAirdropSchema):
     print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
     return BaseResponseSchema[WalletModelSchema](
-        data=result.model_dump(exclude_none=True), message="airdrop successfully"
+        data=result, message="airdrop successfully"
     ).to_dict()
 
 
@@ -46,7 +46,7 @@ async def airdrop(request, data: WalletAirdropSchema):
     print(f"airdrop(request, data: {data.address} - {data.amount} SOL)")
     result = await solana_service.airdrop(address=data.address, amount=data.amount)
     return BaseResponseSchema[WalletModelSchema](
-        data=result.model_dump(exclude_none=True), message="airdrop successfully"
+        data=result, message="airdrop successfully"
     ).to_dict()
 
 
@@ -63,7 +63,7 @@ async def airdrop(request, data: WalletAirdropSchema):
 async def create_wallet(request, data: WalletModelCreationSchema):
     wallet = await solana_service.create_or_restore_wallet(data)
     return BaseResponseSchema[WalletModelSchema](
-        data=wallet.model_dump(exclude_none=True),
+        data=wallet,
         message="fetch wallet info successfully",
     ).to_dict()
 
@@ -81,7 +81,7 @@ async def create_wallet(request, data: WalletModelCreationSchema):
 async def create_wallet(request, data: WalletModelCreationSchema):
     wallet = await solana_service.create_or_restore_wallet(data)
     return BaseResponseSchema[WalletModelSchema](
-        data=wallet.model_dump(exclude_none=True),
+        data=wallet,
         message="fetch wallet info successfully",
     ).to_dict()
 
@@ -114,9 +114,7 @@ async def wallet_validation(request, address: str):
     balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
-        data=WalletModelSchema(
-            address=address, isValid=is_valid, balance=balance
-        ).model_dump(exclude_none=True),
+        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
         message="fetch wallet info successfully",
     ).to_dict()
 
@@ -134,8 +132,6 @@ async def wallet_validation(request, address: str):
     balance = await solana_service.get_balance(address)
     print("balance", balance)
     return BaseResponseSchema[WalletModelSchema](
-        data=WalletModelSchema(
-            address=address, isValid=is_valid, balance=balance
-        ).model_dump(exclude_none=True),
+        data=WalletModelSchema(address=address, isValid=is_valid, balance=balance),
         message="fetch wallet info successfully",
     ).to_dict()

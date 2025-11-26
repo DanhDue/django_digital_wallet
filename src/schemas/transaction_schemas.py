@@ -1,8 +1,31 @@
 from typing import Optional
 from ninja import Schema
 
+from schemas.token_schemas import MintTokenSchema
+
+
+class TransactionRetrieverSchema(Schema):
+    # Account to be queried.
+    account: str
+    # Start searching backwards from this transaction signature.
+    before_signature: Optional[str] = None
+    # Search until this transaction signature, if found before limit reached.
+    until_signature: Optional[str] = None
+    # Maximum transaction signatures to return (between 1 and 1,000, default: 1,000).
+    limit: Optional[int] = 10
+    # Bank state to query. It can be either "finalized", "confirmed" or "processed".
+    commitment: Optional[str] = None
+
 
 class TransactionSchema(Schema):
+
+    # Transaction signature (hash) as base58 string
+    # This uniquely identifies the transaction on the Solana blockchain
+    signature: Optional[str] = None
+    
+    # wallet address that owns the transaction and token accounts involved.
+    owner: Optional[str] = None
+
     # The Solana wallet address that will sent tokens.
     # Must be a valid base58-encoded Solana public key
     sender: Optional[str] = None
@@ -20,10 +43,6 @@ class TransactionSchema(Schema):
 
     # destination_token_account
     destination: Optional[str] = None
-
-    # Transaction signature (hash) as base58 string
-    # This uniquely identifies the transaction on the Solana blockchain
-    signature: Optional[str] = None
 
     # Current status of the transaction
     # Possible values: 'pending', 'confirmed', 'failed', 'expired'
@@ -65,6 +84,10 @@ class TransactionSchema(Schema):
     # For display purposes
     symbol: Optional[str] = None
 
+    # SPL Token mint information
+    # Contains details about the token contract
+    mint_token: Optional[MintTokenSchema] = None
+
     # Direction of the transfer relative to the queried wallet
     # "in" for received, "out" for sent
     direction: Optional[str] = None  # SENT / RECEIVED
@@ -79,7 +102,5 @@ class TransactionSchema(Schema):
 
     required_for_dest_token_account_creation_fee: Optional[bool] = False
 
-    model_config = {
-        "from_attributes": True,
-        "exclude_none": True,
-    }
+    def __hash__(self):
+        return hash((self.signature, self.source))

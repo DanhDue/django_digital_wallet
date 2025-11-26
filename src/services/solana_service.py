@@ -1,3 +1,4 @@
+import base64
 import json
 import struct
 import time
@@ -9,18 +10,25 @@ import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Confirmed, Finalized
 from solana.rpc.types import TokenAccountOpts
 from solders.keypair import Keypair
 from solders.message import Message, MessageV0
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 from solders.system_program import TransferParams, transfer
 from solders.transaction import Transaction, VersionedTransaction
-from spl.token._layouts import ACCOUNT_LAYOUT, MINT_LAYOUT
-from spl.token.constants import TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID
+from spl.token._layouts import ACCOUNT_LAYOUT, INSTRUCTIONS_LAYOUT, MINT_LAYOUT
+from spl.token.constants import (
+    TOKEN_2022_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    WRAPPED_SOL_MINT,
+)
 from spl.token.core import MintInfo
 from spl.token.instructions import (
     TransferCheckedParams,
     create_associated_token_account,
+    decode_transfer_checked,
     get_associated_token_address,
     transfer_checked,
 )
@@ -32,8 +40,9 @@ from schemas.token_schemas import (
     TokenMetaDataSchema,
     TransferTokenCreationSchema,
 )
-from schemas.transaction_schemas import TransactionSchema
+from schemas.transaction_schemas import TransactionRetrieverSchema, TransactionSchema
 from schemas.wallet_schemas import WalletModelCreationSchema, WalletModelSchema
+from services.solana_transaction_classifier import SolanaTransactionClassifier
 
 METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
 
@@ -355,7 +364,7 @@ class SolanaService:
                 # Wait for confirmation
                 confirmation = await client.confirm_transaction(
                     signature,
-                    commitment="confirmed",
+                    commitment=Confirmed,
                 )
 
                 print(f"Transaction confirmed: {confirmation.value}")
@@ -601,7 +610,7 @@ class SolanaService:
 
                 # Confirm transaction
                 confirmation = await client.confirm_transaction(
-                    signature, commitment="confirmed", sleep_seconds=1
+                    signature, commitment=Confirmed, sleep_seconds=1
                 )
 
                 if confirmation.value and confirmation.value[0].err is None:
@@ -855,9 +864,12 @@ class SolanaService:
             print(f"create_token_account(self, data: {data})")
 
             try:
-                owner = self.create_keypair_from_base58_private_key(
-                    data.owner_bs58_private_key
-                )
+                owner_address = (data.owner or "").strip()
+                if owner_address:
+                    owner = Pubkey.from_string(data.owner)
+
+                if owner:
+                    print("owner", owner)
 
                 payer = self.create_keypair_from_base58_private_key(
                     data.payer_bs58_private_key
@@ -873,7 +885,7 @@ class SolanaService:
                     )
 
                 associated_token_account = get_associated_token_address(
-                    owner.pubkey(), mint_address
+                    owner, mint_address
                 )
 
                 existing_account = await client.get_account_info(
@@ -884,7 +896,7 @@ class SolanaService:
                     account_data = ACCOUNT_LAYOUT.parse(existing_account.value.data)
                     return TokenAccountSchema(
                         address=str(associated_token_account),
-                        owner=str(owner.pubkey()),
+                        owner=str(owner),
                         amount=account_data.amount,
                         account_owner=str(existing_account.value.owner),
                         mint=data.mint_token,
@@ -897,7 +909,7 @@ class SolanaService:
 
                 create_token_account_instruction = create_associated_token_account(
                     payer=payer.pubkey(),
-                    owner=owner.pubkey(),
+                    owner=owner,
                     mint=mint_address,
                 )
 
@@ -919,14 +931,14 @@ class SolanaService:
                 print(f"Transaction sent! Signature: {signature}")
 
                 confirmation = await client.confirm_transaction(
-                    signature, commitment="confirmed", sleep_seconds=1
+                    signature, commitment=Confirmed, sleep_seconds=1
                 )
 
                 if confirmation.value and confirmation.value[0].err is None:
                     print("Token account created successfully!")
                     return TokenAccountSchema(
                         address=str(associated_token_account),
-                        owner=str(owner.pubkey()),
+                        owner=str(owner),
                         mint=data.mint_token,
                         mint_token=mint_token,
                         fee_lamports=fee_lamports,
@@ -967,15 +979,15 @@ class SolanaService:
                             metadata = json.loads(content)
                             return metadata
                         except json.JSONDecodeError as e:
-                            print(f"❌ JSON decode error: {e}")
+                            print(f"JSON decode error: {e}")
                             print(f"Raw content: {content[:200]}...")
                             return None
                     else:
-                        print(f"❌ HTTP {response.status} from {uri}")
+                        print(f"HTTP {response.status} from {uri}")
                         return None
 
         except Exception as e:
-            print(f"❌ Error fetching metadata from {uri}: {e}")
+            print(f"Error fetching metadata from {uri}: {e}")
             return None
 
     def normalize_metadata_uri(self, uri: str) -> str:
@@ -995,3 +1007,407 @@ class SolanaService:
         else:
             # IPFS hash without prefix
             return f"https://ipfs.io/ipfs/{uri}"
+
+    def parse_token_balances(
+        self,
+        meta: Dict[str, Any],
+        message: Dict[str, Any],
+        transaction: TransactionSchema = None,
+        is_shrink: bool = False,
+    ):
+        """Parse token balance changes and account address"""
+        pre_token_balances = meta.get("preTokenBalances", [])
+        post_token_balances = meta.get("postTokenBalances", [])
+        account_keys = message.get("accountKeys", [])
+
+        found_index = -1
+        account_index = -1
+        result = None
+
+        token_balances = []
+
+        if is_shrink and transaction and transaction.mint_token:
+            for i, post_balance in enumerate(post_token_balances):
+                owner = post_balance.get("owner")
+                if owner == transaction.source or owner == transaction.owner:
+                    found_index = i
+                    print(
+                        f"""Found matching post token balance at index {found_index}"""
+                    )
+
+                    account_index = post_balance.get("accountIndex")
+                    post_amount = post_balance.get("uiTokenAmount", {})
+                    mint = post_balance.get("mint")
+
+                    # Find corresponding pre balance
+                    pre_balance = next(
+                        (
+                            b
+                            for b in pre_token_balances
+                            if b.get("accountIndex") == account_index
+                            and b.get("mint") == mint
+                        ),
+                        None,
+                    )
+                    # Calculate changes
+                    if pre_balance:
+                        pre_amount = pre_balance.get("uiTokenAmount", {})
+                        pre_ui_amount = pre_amount.get("uiAmount", 0) or 0
+                    else:
+                        pre_ui_amount = 0
+
+                    post_ui_amount = post_amount.get("uiAmount", 0) or 0
+                    change = post_ui_amount - pre_ui_amount
+
+                    # Get actual account address
+                    if account_index < len(account_keys):
+                        account_address = account_keys[account_index].get(
+                            "pubkey", f"Account_{account_index}"
+                        )
+                    else:
+                        account_address = f"Account_{account_index}"
+
+                    # Only add if there is a change or a balance
+                    if change != 0 or post_ui_amount != 0:
+                        result = {
+                            "address": account_address,
+                            "token": mint,
+                            "changes": change,
+                            "post_balance": f"{post_ui_amount} {transaction.symbol if transaction and transaction.symbol else "SOL" or ''}".strip(),
+                        }
+                        token_balances.append(result)
+            return token_balances
+
+        else:
+            # Process each post token balance
+            for post_balance in post_token_balances:
+                account_index = post_balance.get("accountIndex")
+                mint = post_balance.get("mint")
+                post_amount = post_balance.get("uiTokenAmount", {})
+
+                # Get actual account address
+                if account_index < len(account_keys):
+                    account_address = account_keys[account_index].get(
+                        "pubkey", f"Account_{account_index}"
+                    )
+                else:
+                    account_address = f"Account_{account_index}"
+
+                # Find corresponding pre balance
+                pre_balance = next(
+                    (
+                        b
+                        for b in pre_token_balances
+                        if b.get("accountIndex") == account_index
+                        and b.get("mint") == mint
+                    ),
+                    None,
+                )
+
+                # Calculate changes
+                if pre_balance:
+                    pre_amount = pre_balance.get("uiTokenAmount", {})
+                    pre_ui_amount = pre_amount.get("uiAmount", 0) or 0
+                else:
+                    pre_ui_amount = 0
+
+                post_ui_amount = post_amount.get("uiAmount", 0) or 0
+                change = post_ui_amount - pre_ui_amount
+
+                # Only add if there is a change or a balance
+                if change != 0 or post_ui_amount != 0:
+                    token_balances.append(
+                        {
+                            "address": account_address,
+                            "token": mint,
+                            "changes": change,
+                            "post_balance": f"{post_ui_amount} {transaction.symbol if transaction and transaction.symbol else "SOL" or ''}".strip(),
+                        }
+                    )
+            return token_balances
+
+    def parse_account_inputs(
+        self,
+        message: Dict[str, Any],
+        meta: Dict[str, Any],
+        raw_transaction: TransactionSchema,
+        is_shrink: bool = False,
+    ):
+        """Parse account inputs and balance changes"""
+        account_keys = message.get("accountKeys", [])
+        pre_balances = meta.get("preBalances", [])
+        post_balances = meta.get("postBalances", [])
+
+        if is_shrink and raw_transaction.source:
+            index = -1
+            found_account_key = None
+            for i, account in enumerate(account_keys):
+                if i >= len(pre_balances) or i >= len(post_balances):
+                    continue
+                if account.get("pubkey") != raw_transaction.source:
+                    found_account_key = account
+                    index = i
+                    break
+            if index == -1:
+                return None
+
+            pubkey = found_account_key.get("pubkey", "")
+            pre_balance_sol = pre_balances[index] / 1e9
+            post_balance_sol = post_balances[index] / 1e9
+            change_sol = post_balance_sol - pre_balance_sol
+
+            # Create account details
+            details = []
+            if found_account_key.get("signer", False):
+                details.append("Signer")
+            if found_account_key.get("writable", False):
+                details.append("Writable")
+
+            # Add fee payer if it's the first account and is a signer
+            if index == 0 and found_account_key.get("signer", False):
+                details.append("Fee Payer")
+
+            result = {
+                "is_payer": i == 0 and account.get("signer", False),
+                "address": pubkey,
+                "changes": round(change_sol, 9),
+                "post_balance": round(post_balance_sol, 9),
+                "details": details,
+            }
+            return result
+        else:
+            account_inputs = []
+            for i, account in enumerate(account_keys):
+                if i >= len(pre_balances) or i >= len(post_balances):
+                    continue
+
+                pubkey = account.get("pubkey", "")
+                pre_balance_sol = pre_balances[i] / 1e9
+                post_balance_sol = post_balances[i] / 1e9
+                change_sol = post_balance_sol - pre_balance_sol
+
+                # Create account details
+                details = []
+                if account.get("signer", False):
+                    details.append("Signer")
+                if account.get("writable", False):
+                    details.append("Writable")
+
+                # Add fee payer if it's the first account and is a signer
+                if i == 0 and account.get("signer", False):
+                    details.append("Fee Payer")
+
+                account_inputs.append(
+                    {
+                        "is_payer": i == 0 and account.get("signer", False),
+                        "address": pubkey,
+                        "changes": round(change_sol, 9),
+                        "post_balance": round(post_balance_sol, 9),
+                        "details": details,
+                    }
+                )
+            return account_inputs
+
+    def parse_transaction_to_desired_format(
+        self,
+        transaction_data: Dict[str, Any],
+        raw_transaction: TransactionSchema,
+        is_shrink: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Parse transaction data from jsonParsed format to desired format
+        """
+        result = transaction_data.get("result", {})
+        meta = result.get("meta", {})
+        transaction_info = result.get("transaction", {})
+        message = transaction_info.get("message", {})
+        signatures = transaction_info.get("signatures", {})
+
+        # 1. ACCOUNT INPUTS SECTION
+        account_inputs = self.parse_account_inputs(
+            message,
+            meta,
+            raw_transaction=raw_transaction,
+            is_shrink=is_shrink,
+        )
+
+        # locate the payer account (where is_payer == True)
+        payer_account = None
+        if isinstance(account_inputs, list):
+            payer_account = next(
+                (acc for acc in account_inputs if acc.get("is_payer")), None
+            )
+            payer_address = (
+                payer_account["address"]
+                if payer_account
+                else (account_inputs[0]["address"] if account_inputs else None)
+            )
+        else:
+            payer_address = (
+                account_inputs["address"] if account_inputs.get("is_payer") else None
+            )
+
+        # 2. TOKEN BALANCES SECTION
+        token_balances = self.parse_token_balances(
+            meta, message, raw_transaction, is_shrink=is_shrink
+        )
+
+        # 3. OVERVIEW SECTION
+        overview = {
+            "signature": signatures,
+            "result": "Success" if meta.get("err") is None else "Failed",
+            "timestamp": result.get("blockTime", 0),
+            "confirmation_status": "finalized",
+            "confirmations": "max",
+            "slot": result.get("slot", 0),
+            "recent_blockhash": message.get("recentBlockhash", ""),
+            "fee": meta.get("fee", 0) / 1e9,  # convert to SOL
+            "compute_units_consumed": meta.get("computeUnitsConsumed", 0),
+            "transaction_cost": (meta.get("fee", 0) + 2039280)
+            / 1e9,  # Fee + rent exemption
+            "reserved_cus": 400000,  # from log messages: "consumed 20641 of 400000 compute units"
+            "transaction_version": (
+                "legacy"
+                if result.get("version") == "legacy"
+                else f"{result.get('version', 0)}"
+            ),
+            "payer_address": payer_address if payer_address else None,
+        }
+
+        classifier = SolanaTransactionClassifier()
+        transaction_type = classifier.get_transaction_type(transaction_data)
+
+        return {
+            "overview": overview,
+            "account_inputs": account_inputs,
+            "token_balances": token_balances,
+            "transaction_type": transaction_type.value,
+        }
+
+    async def process_transaction(
+        self,
+        transaction_data: Dict[str, Any],
+        transaction: TransactionSchema = None,
+        is_shrink: bool = False,
+    ) -> Dict[str, Any]:
+        try:
+            parsed_data = self.parse_transaction_to_desired_format(
+                transaction_data, transaction, is_shrink
+            )
+            return parsed_data
+
+        except Exception as e:
+            return {"error": f"Parse error: {str(e)}", "raw_data": transaction_data}
+
+    async def fetch_transactions_by_owner(self, data: TransactionRetrieverSchema):
+        async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            before_signature = (data.before_signature or "").strip()
+            until_signature = (data.until_signature or "").strip()
+            account_signatures = await client.get_signatures_for_address(
+                account=Pubkey.from_string(data.account),
+                before=(
+                    Signature.from_string(before_signature)
+                    if before_signature
+                    else None
+                ),
+                until=(
+                    Signature.from_string(until_signature) if until_signature else None
+                ),
+                limit=data.limit,
+                commitment=Finalized,
+            )
+
+            child_token_accounts = await self.retrieve_token_accounts(data.account)
+            # print("child_token_accounts", child_token_accounts)
+
+            # transactions = []
+            parsed_transactions = []
+            parent_signatures = set()
+            child_signatures = set()
+
+            # add all primary signatures to parent_signatures to avoid processing duplicates later
+            for i, raw_transaction in enumerate[Any](account_signatures.value):
+                parent_signatures.add(
+                    TransactionSchema(
+                        signature=str(raw_transaction.signature),
+                        owner=data.account,
+                        source=data.account,
+                        token="Solana",
+                        symbol="SOL",
+                        mint_token=WRAPPED_SOL_MINT,
+                    )
+                )
+
+            for j, token_account in enumerate(child_token_accounts):
+                print(f"token_account-{j}", token_account.address, "\n")
+                child_token_account_signatures = (
+                    await client.get_signatures_for_address(
+                        account=Pubkey.from_string(token_account.address),
+                        before=(
+                            Signature.from_string(before_signature)
+                            if before_signature
+                            else None
+                        ),
+                        until=(
+                            Signature.from_string(until_signature)
+                            if until_signature
+                            else None
+                        ),
+                        limit=data.limit,
+                        commitment=Finalized,
+                    )
+                )
+
+                for k, child_signature in enumerate(
+                    child_token_account_signatures.value
+                ):
+                    child_signatures.add(
+                        TransactionSchema(
+                            signature=str(child_signature.signature),
+                            owner=data.account,
+                            source=token_account.address,
+                            token=token_account.mint_token.name,
+                            symbol=token_account.mint_token.symbol,
+                            mint_token=token_account.mint_token,
+                        )
+                    )
+
+            all_raw_transactions = parent_signatures.union(child_signatures)
+            print("all_signatures to process:", len(all_raw_transactions), "\n")
+
+            for raw_transaction in all_raw_transactions:
+                transaction = await client.get_transaction(
+                    Signature.from_string(raw_transaction.signature),
+                    "jsonParsed",
+                    max_supported_transaction_version=0,
+                )
+                parsed_transaction = await self.process_transaction(
+                    json.loads(transaction.to_json()),
+                    transaction=raw_transaction,
+                    is_shrink=True,
+                )
+                # print("parsed_transaction", json.dumps(parsed_transaction), "\n")
+                parsed_transactions.insert(
+                    0,
+                    {
+                        "signature": f"{raw_transaction.signature}",
+                        **parsed_transaction,
+                    },
+                )
+            return parsed_transactions
+
+    async def fetch_transactions(self, signature: str, parsed_json: bool = False):
+        async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            print(
+                f"fetch_transactions(signature={signature}, parsed_json={parsed_json})"
+            )
+            transaction = await client.get_transaction(
+                Signature.from_string(signature),
+                "jsonParsed",
+                max_supported_transaction_version=0,
+            )
+            return (
+                await self.process_transaction(json.loads(transaction.to_json()))
+                if parsed_json
+                else json.loads(transaction.to_json())
+            )

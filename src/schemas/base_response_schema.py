@@ -14,7 +14,7 @@ class BaseResponseSchema(GenericModel, Generic[T]):
     # Human-readable message describing the result
     # Useful for displaying user feedback
     message: Optional[str] = None
-    
+
     # returned schema for response
     data: Optional[T] = None
 
