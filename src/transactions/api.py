@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Optional
 
+from ninja import Query
 from ninja_extra import Router
 
 import helpers
@@ -34,9 +35,16 @@ async def retrieve_transaction_list(request, account: str, limit: int):
     response=dict,
     auth=helpers.api_auth_user_or_anon,
 )
-async def retrieve_transaction(request, signature: str, parsed_json: bool = False):
+async def retrieve_transaction(
+    request,
+    signature: str,
+    owner: Optional[List[str]] = Query(None),
+    parsed_json: bool = False,
+):
     print(f"retrieve_transaction(request, signature: {signature})")
-    result = await solana_service.fetch_transactions(signature=signature, parsed_json=parsed_json)
+    result = await solana_service.fetch_transactions(
+        signature=signature, owner=owner, parsed_json=parsed_json
+    )
     return BaseResponseSchema(
         data=result,
     ).to_dict()

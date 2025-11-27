@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from ninja import Schema
 
 from schemas.token_schemas import MintTokenSchema
@@ -24,7 +24,7 @@ class TransactionSchema(Schema):
     signature: Optional[str] = None
     
     # wallet address that owns the transaction and token accounts involved.
-    owner: Optional[str] = None
+    owner: Optional[List[str]] = None
 
     # The Solana wallet address that will sent tokens.
     # Must be a valid base58-encoded Solana public key

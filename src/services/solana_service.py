@@ -1018,113 +1018,55 @@ class SolanaService:
         """Parse token balance changes and account address"""
         pre_token_balances = meta.get("preTokenBalances", [])
         post_token_balances = meta.get("postTokenBalances", [])
-        account_keys = message.get("accountKeys", [])
+        account_keys = [key.get("pubkey") for key in message.get("accountKeys", [])]
 
-        found_index = -1
-        account_index = -1
-        result = None
+        pre_balance_map = {
+            (b.get("accountIndex"), b.get("mint")): (
+                b.get("uiTokenAmount", {}).get("uiAmount") or 0.0
+            )
+            for b in pre_token_balances
+        }
 
         token_balances = []
 
-        if is_shrink and transaction and transaction.mint_token:
-            for i, post_balance in enumerate(post_token_balances):
+        for post_balance in post_token_balances:
+            if (
+                is_shrink
+                and transaction
+                and (transaction.source or len(transaction.owner) > 0)
+            ):
                 owner = post_balance.get("owner")
-                if owner == transaction.source or owner == transaction.owner:
-                    found_index = i
-                    print(
-                        f"""Found matching post token balance at index {found_index}"""
-                    )
+                if owner not in (transaction.source, *transaction.owner):
+                    continue
 
-                    account_index = post_balance.get("accountIndex")
-                    post_amount = post_balance.get("uiTokenAmount", {})
-                    mint = post_balance.get("mint")
+            account_index = post_balance.get("accountIndex")
+            mint = post_balance.get("mint")
 
-                    # Find corresponding pre balance
-                    pre_balance = next(
-                        (
-                            b
-                            for b in pre_token_balances
-                            if b.get("accountIndex") == account_index
-                            and b.get("mint") == mint
-                        ),
-                        None,
-                    )
-                    # Calculate changes
-                    if pre_balance:
-                        pre_amount = pre_balance.get("uiTokenAmount", {})
-                        pre_ui_amount = pre_amount.get("uiAmount", 0) or 0
-                    else:
-                        pre_ui_amount = 0
+            pre_ui_amount = pre_balance_map.get((account_index, mint), 0.0)
 
-                    post_ui_amount = post_amount.get("uiAmount", 0) or 0
-                    change = post_ui_amount - pre_ui_amount
+            post_amount = post_balance.get("uiTokenAmount", {})
+            post_ui_amount = post_amount.get("uiAmount") or 0.0
+            change = post_ui_amount - pre_ui_amount
 
-                    # Get actual account address
-                    if account_index < len(account_keys):
-                        account_address = account_keys[account_index].get(
-                            "pubkey", f"Account_{account_index}"
-                        )
-                    else:
-                        account_address = f"Account_{account_index}"
-
-                    # Only add if there is a change or a balance
-                    if change != 0 or post_ui_amount != 0:
-                        result = {
-                            "address": account_address,
-                            "token": mint,
-                            "changes": change,
-                            "post_balance": f"{post_ui_amount} {transaction.symbol if transaction and transaction.symbol else "SOL" or ''}".strip(),
-                        }
-                        token_balances.append(result)
-            return token_balances
-
-        else:
-            # Process each post token balance
-            for post_balance in post_token_balances:
-                account_index = post_balance.get("accountIndex")
-                mint = post_balance.get("mint")
-                post_amount = post_balance.get("uiTokenAmount", {})
-
-                # Get actual account address
-                if account_index < len(account_keys):
-                    account_address = account_keys[account_index].get(
-                        "pubkey", f"Account_{account_index}"
-                    )
-                else:
-                    account_address = f"Account_{account_index}"
-
-                # Find corresponding pre balance
-                pre_balance = next(
-                    (
-                        b
-                        for b in pre_token_balances
-                        if b.get("accountIndex") == account_index
-                        and b.get("mint") == mint
-                    ),
-                    None,
+            if change != 0 or post_ui_amount != 0:
+                account_address = (
+                    account_keys[account_index]
+                    if account_index < len(account_keys)
+                    else f"Account_{account_index}"
                 )
 
-                # Calculate changes
-                if pre_balance:
-                    pre_amount = pre_balance.get("uiTokenAmount", {})
-                    pre_ui_amount = pre_amount.get("uiAmount", 0) or 0
-                else:
-                    pre_ui_amount = 0
+                symbol = (transaction and transaction.symbol) or mint or ""
 
-                post_ui_amount = post_amount.get("uiAmount", 0) or 0
-                change = post_ui_amount - pre_ui_amount
+                token_balances.append(
+                    {
+                        "address": account_address,
+                        "token": mint,
+                        "changes": change,
+                        "post_balance": f"{post_ui_amount} {symbol}".strip(),
+                    }
+                )
 
-                # Only add if there is a change or a balance
-                if change != 0 or post_ui_amount != 0:
-                    token_balances.append(
-                        {
-                            "address": account_address,
-                            "token": mint,
-                            "changes": change,
-                            "post_balance": f"{post_ui_amount} {transaction.symbol if transaction and transaction.symbol else "SOL" or ''}".strip(),
-                        }
-                    )
-            return token_balances
+        return token_balances
 
     def _create_account_input(
         self, account: Dict[str, Any], pre_balance: int, post_balance: int, index: int
@@ -1163,22 +1105,23 @@ class SolanaService:
         pre_balances = meta.get("preBalances", [])
         post_balances = meta.get("postBalances", [])
 
-        if is_shrink and raw_transaction.source:
-            for i, account in enumerate(account_keys):
-                if i < len(pre_balances) and i < len(post_balances):
-                    if account.get("pubkey") != raw_transaction.source:
-                        return self._create_account_input(
-                            account, pre_balances[i], post_balances[i], i
-                        )
-            return None
-        else:
+        if is_shrink and (raw_transaction.source or len(raw_transaction.owner) > 0):
+            allowed_pubkeys = {raw_transaction.source, *raw_transaction.owner}
             return [
                 self._create_account_input(
                     account, pre_balances[i], post_balances[i], i
                 )
                 for i, account in enumerate(account_keys)
-                if i < len(pre_balances) and i < len(post_balances)
+                if i < len(pre_balances)
+                and i < len(post_balances)
+                and account.get("pubkey") in allowed_pubkeys
             ]
+
+        return [
+            self._create_account_input(account, pre_balances[i], post_balances[i], i)
+            for i, account in enumerate(account_keys)
+            if i < len(pre_balances) and i < len(post_balances)
+        ]
 
     def parse_transaction_to_desired_format(
         self,
@@ -1297,12 +1240,14 @@ class SolanaService:
             parent_signatures = set()
             child_signatures = set()
 
+            owners = [token_account.address for token_account in child_token_accounts]
+            print("owners", owners, "\n")
             # add all primary signatures to parent_signatures to avoid processing duplicates later
             for i, raw_transaction in enumerate[Any](account_signatures.value):
                 parent_signatures.add(
                     TransactionSchema(
                         signature=str(raw_transaction.signature),
-                        owner=data.account,
+                        owner=[data.account],
                         source=data.account,
                         token="Solana",
                         symbol="SOL",
@@ -1336,8 +1281,8 @@ class SolanaService:
                     child_signatures.add(
                         TransactionSchema(
                             signature=str(child_signature.signature),
-                            owner=data.account,
-                            source=token_account.address,
+                            owner=[*owners],
+                            source=data.account,
                             token=token_account.mint_token.name,
                             symbol=token_account.mint_token.symbol,
                             mint_token=token_account.mint_token,
@@ -1368,7 +1313,9 @@ class SolanaService:
                 )
             return parsed_transactions
 
-    async def fetch_transactions(self, signature: str, parsed_json: bool = False):
+    async def fetch_transactions(
+        self, signature: str, owner: List[str] = None, parsed_json: bool = False
+    ):
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
             print(
                 f"fetch_transactions(signature={signature}, parsed_json={parsed_json})"
@@ -1379,7 +1326,14 @@ class SolanaService:
                 max_supported_transaction_version=0,
             )
             return (
-                await self.process_transaction(json.loads(transaction.to_json()))
+                await self.process_transaction(
+                    json.loads(transaction.to_json()),
+                    transaction=TransactionSchema(
+                        signature=str(signature),
+                        owner=owner if owner else [],
+                    ),
+                    is_shrink=True,
+                )
                 if parsed_json
                 else json.loads(transaction.to_json())
             )
