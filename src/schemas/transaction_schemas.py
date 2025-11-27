@@ -1,7 +1,7 @@
 from typing import List, Optional
 from ninja import Schema
 
-from schemas.token_schemas import MintTokenSchema
+from schemas.token_schemas import MintTokenSchema, TokenAccountSchema
 
 
 class TransactionRetrieverSchema(Schema):
@@ -22,9 +22,11 @@ class TransactionSchema(Schema):
     # Transaction signature (hash) as base58 string
     # This uniquely identifies the transaction on the Solana blockchain
     signature: Optional[str] = None
-    
+
     # wallet address that owns the transaction and token accounts involved.
     owner: Optional[List[str]] = None
+
+    token_accounts: List[TokenAccountSchema] = None
 
     # The Solana wallet address that will sent tokens.
     # Must be a valid base58-encoded Solana public key

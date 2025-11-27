@@ -5,6 +5,8 @@ import time
 import traceback
 from typing import Any, Dict, List, Optional
 
+from utils.list_utils import first_or_none, last_or_none, single_or_none
+
 import aiohttp
 import base58
 from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator
@@ -1055,7 +1057,15 @@ class SolanaService:
                     else f"Account_{account_index}"
                 )
 
-                symbol = (transaction and transaction.symbol) or mint or ""
+                token_accounts = transaction.token_accounts if transaction else []
+                token_account = first_or_none(
+                    token_accounts,
+                    lambda ta: ta.mint_token and ta.mint_token.address == mint,
+                )
+
+                symbol = (
+                    (token_account and token_account.mint_token.symbol) or mint or ""
+                )
 
                 token_balances.append(
                     {
@@ -1252,6 +1262,7 @@ class SolanaService:
                         token="Solana",
                         symbol="SOL",
                         mint_token=WRAPPED_SOL_MINT,
+                        token_accounts=child_token_accounts,
                     )
                 )
 
@@ -1286,6 +1297,7 @@ class SolanaService:
                             token=token_account.mint_token.name,
                             symbol=token_account.mint_token.symbol,
                             mint_token=token_account.mint_token,
+                            token_accounts=child_token_accounts,
                         )
                     )
 
