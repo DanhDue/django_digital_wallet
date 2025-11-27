@@ -1126,6 +1126,31 @@ class SolanaService:
                     )
             return token_balances
 
+    def _create_account_input(
+        self, account: Dict[str, Any], pre_balance: int, post_balance: int, index: int
+    ) -> Dict[str, Any]:
+        """Helper function to create an account input dictionary."""
+        pubkey = account.get("pubkey", "")
+        pre_balance_sol = pre_balance / 1e9
+        post_balance_sol = post_balance / 1e9
+        change_sol = post_balance_sol - pre_balance_sol
+
+        details = []
+        if account.get("signer", False):
+            details.append("Signer")
+        if account.get("writable", False):
+            details.append("Writable")
+        if index == 0 and account.get("signer", False):
+            details.append("Fee Payer")
+
+        return {
+            "is_payer": index == 0 and account.get("signer", False),
+            "address": pubkey,
+            "changes": round(change_sol, 9),
+            "post_balance": round(post_balance_sol, 9),
+            "details": details,
+        }
+
     def parse_account_inputs(
         self,
         message: Dict[str, Any],
@@ -1139,74 +1164,21 @@ class SolanaService:
         post_balances = meta.get("postBalances", [])
 
         if is_shrink and raw_transaction.source:
-            index = -1
-            found_account_key = None
             for i, account in enumerate(account_keys):
-                if i >= len(pre_balances) or i >= len(post_balances):
-                    continue
-                if account.get("pubkey") != raw_transaction.source:
-                    found_account_key = account
-                    index = i
-                    break
-            if index == -1:
-                return None
-
-            pubkey = found_account_key.get("pubkey", "")
-            pre_balance_sol = pre_balances[index] / 1e9
-            post_balance_sol = post_balances[index] / 1e9
-            change_sol = post_balance_sol - pre_balance_sol
-
-            # Create account details
-            details = []
-            if found_account_key.get("signer", False):
-                details.append("Signer")
-            if found_account_key.get("writable", False):
-                details.append("Writable")
-
-            # Add fee payer if it's the first account and is a signer
-            if index == 0 and found_account_key.get("signer", False):
-                details.append("Fee Payer")
-
-            result = {
-                "is_payer": i == 0 and account.get("signer", False),
-                "address": pubkey,
-                "changes": round(change_sol, 9),
-                "post_balance": round(post_balance_sol, 9),
-                "details": details,
-            }
-            return result
+                if i < len(pre_balances) and i < len(post_balances):
+                    if account.get("pubkey") != raw_transaction.source:
+                        return self._create_account_input(
+                            account, pre_balances[i], post_balances[i], i
+                        )
+            return None
         else:
-            account_inputs = []
-            for i, account in enumerate(account_keys):
-                if i >= len(pre_balances) or i >= len(post_balances):
-                    continue
-
-                pubkey = account.get("pubkey", "")
-                pre_balance_sol = pre_balances[i] / 1e9
-                post_balance_sol = post_balances[i] / 1e9
-                change_sol = post_balance_sol - pre_balance_sol
-
-                # Create account details
-                details = []
-                if account.get("signer", False):
-                    details.append("Signer")
-                if account.get("writable", False):
-                    details.append("Writable")
-
-                # Add fee payer if it's the first account and is a signer
-                if i == 0 and account.get("signer", False):
-                    details.append("Fee Payer")
-
-                account_inputs.append(
-                    {
-                        "is_payer": i == 0 and account.get("signer", False),
-                        "address": pubkey,
-                        "changes": round(change_sol, 9),
-                        "post_balance": round(post_balance_sol, 9),
-                        "details": details,
-                    }
+            return [
+                self._create_account_input(
+                    account, pre_balances[i], post_balances[i], i
                 )
-            return account_inputs
+                for i, account in enumerate(account_keys)
+                if i < len(pre_balances) and i < len(post_balances)
+            ]
 
     def parse_transaction_to_desired_format(
         self,
