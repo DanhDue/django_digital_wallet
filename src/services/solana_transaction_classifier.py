@@ -76,6 +76,16 @@ class SolanaTransactionClassifier:
             for inner in inner_instructions:
                 all_instructions.extend(inner.get("instructions", []))
 
+            # Check programs
+            program_ids = set()
+            for instr in all_instructions:
+                program_id = instr.get("programId", "")
+                program_ids.add(program_id)
+
+            # Check for SOL transfers
+            if self._is_sol_transfer(all_instructions, program_ids):
+                return TransactionType.SOL_TRANSFER
+
             # Check instruction types and log messages for swaps
             if self._is_swap_transaction(all_instructions, log_messages):
                 return (
@@ -99,19 +109,9 @@ class SolanaTransactionClassifier:
             if self._is_create_token_account(all_instructions, log_messages):
                 return TransactionType.CREATE_TOKEN_ACCOUNT
 
-            # Check programs
-            program_ids = set()
-            for instr in all_instructions:
-                program_id = instr.get("programId", "")
-                program_ids.add(program_id)
-
             # Check for staking
             if self._is_stake_transaction(program_ids, all_instructions):
                 return TransactionType.STAKE
-
-            # Check for SOL transfers
-            if self._is_sol_transfer(all_instructions, program_ids):
-                return TransactionType.SOL_TRANSFER
 
             return TransactionType.UNKNOWN
 
