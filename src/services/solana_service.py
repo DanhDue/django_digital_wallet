@@ -3,9 +3,12 @@ import json
 import struct
 import time
 import traceback
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from utils.list_utils import first_or_none, last_or_none, single_or_none
+
+from wallets.models import WalletModel
 
 import aiohttp
 import base58
@@ -1224,24 +1227,34 @@ class SolanaService:
         except Exception as e:
             return {"error": f"Parse error: {str(e)}", "raw_data": transaction_data}
 
+    async def _fetch_and_parse_transaction(
+        self, client: AsyncClient, raw_transaction: TransactionSchema
+    ):
+        try:
+            transaction = await client.get_transaction(
+                Signature.from_string(raw_transaction.signature),
+                "jsonParsed",
+                max_supported_transaction_version=0,
+            )
+            parsed_transaction = await self.process_transaction(
+                json.loads(transaction.to_json()),
+                transaction=raw_transaction,
+                is_shrink=True,
+            )
+            return {
+                "signature": f"{raw_transaction.signature}",
+                **parsed_transaction,
+            }
+        except Exception as e:
+            print(f"Error processing transaction {raw_transaction.signature}: {e}")
+            return None
+
     async def fetch_transactions_by_owner(self, data: TransactionRetrieverSchema):
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
+            start_time = time.time_ns() // 1_000_000
+            print(f"{start_time}")
             before_signature = (data.before_signature or "").strip()
             until_signature = (data.until_signature or "").strip()
-            account_signatures = await client.get_signatures_for_address(
-                account=Pubkey.from_string(data.account),
-                before=(
-                    Signature.from_string(before_signature)
-                    if before_signature
-                    else None
-                ),
-                until=(
-                    Signature.from_string(until_signature) if until_signature else None
-                ),
-                limit=data.limit,
-                commitment=Finalized,
-            )
-
             child_token_accounts = await self.retrieve_token_accounts(data.account)
             # print("child_token_accounts", child_token_accounts)
 
@@ -1251,78 +1264,85 @@ class SolanaService:
             child_signatures = set()
 
             owners = [token_account.address for token_account in child_token_accounts]
-            print("owners", owners, "\n")
-            # add all primary signatures to parent_signatures to avoid processing duplicates later
-            for i, raw_transaction in enumerate[Any](account_signatures.value):
-                parent_signatures.add(
-                    TransactionSchema(
-                        signature=str(raw_transaction.signature),
-                        owner=[data.account],
-                        source=data.account,
-                        token="Solana",
-                        symbol="SOL",
-                        mint_token=WRAPPED_SOL_MINT,
-                        token_accounts=child_token_accounts,
-                    )
-                )
+            accounts_to_fetch = [data.account] + owners
 
-            for j, token_account in enumerate(child_token_accounts):
-                print(f"token_account-{j}", token_account.address, "\n")
-                child_token_account_signatures = (
-                    await client.get_signatures_for_address(
-                        account=Pubkey.from_string(token_account.address),
-                        before=(
-                            Signature.from_string(before_signature)
-                            if before_signature
-                            else None
-                        ),
-                        until=(
-                            Signature.from_string(until_signature)
-                            if until_signature
-                            else None
-                        ),
-                        limit=data.limit,
-                        commitment=Finalized,
-                    )
-                )
+            before_sig = Signature.from_string(before_signature) if before_signature else None
+            until_sig = Signature.from_string(until_signature) if until_signature else None
 
-                for k, child_signature in enumerate(
-                    child_token_account_signatures.value
-                ):
-                    child_signatures.add(
+            sig_tasks = [
+                client.get_signatures_for_address(
+                    account=Pubkey.from_string(acc),
+                    before=before_sig,
+                    until=until_sig,
+                    limit=data.limit,
+                    commitment=Finalized,
+                ) for acc in accounts_to_fetch
+            ]
+            
+            all_signature_responses = await asyncio.gather(*sig_tasks)
+            request_signatures_time = time.time_ns() // 1_000_000
+            print(
+                "request_signatures_time",
+                f"{request_signatures_time - start_time}",
+                "\n",
+            )
+
+            account_signatures = all_signature_responses[0]
+            if account_signatures and account_signatures.value:
+                for raw_transaction in account_signatures.value:
+                    parent_signatures.add(
                         TransactionSchema(
-                            signature=str(child_signature.signature),
-                            owner=[*owners],
+                            signature=str(raw_transaction.signature),
+                            owner=[data.account],
                             source=data.account,
-                            token=token_account.mint_token.name,
-                            symbol=token_account.mint_token.symbol,
-                            mint_token=token_account.mint_token,
+                            token="Solana",
+                            symbol="SOL",
+                            mint_token=WRAPPED_SOL_MINT,
                             token_accounts=child_token_accounts,
                         )
                     )
 
-            all_raw_transactions = parent_signatures.union(child_signatures)
-            print("all_signatures to process:", len(all_raw_transactions), "\n")
+            child_signature_responses = all_signature_responses[1:]
+            for i, token_account in enumerate(child_token_accounts):
+                child_account_signatures = child_signature_responses[i]
+                if child_account_signatures and child_account_signatures.value:
+                    for child_signature in child_account_signatures.value:
+                        child_signatures.add(
+                            TransactionSchema(
+                                signature=str(child_signature.signature),
+                                owner=[*owners],
+                                source=data.account,
+                                token=token_account.mint_token.name,
+                                symbol=token_account.mint_token.symbol,
+                                mint_token=token_account.mint_token,
+                                token_accounts=child_token_accounts,
+                            )
+                        )
 
-            for raw_transaction in all_raw_transactions:
-                transaction = await client.get_transaction(
-                    Signature.from_string(raw_transaction.signature),
-                    "jsonParsed",
-                    max_supported_transaction_version=0,
-                )
-                parsed_transaction = await self.process_transaction(
-                    json.loads(transaction.to_json()),
-                    transaction=raw_transaction,
-                    is_shrink=True,
-                )
-                # print("parsed_transaction", json.dumps(parsed_transaction), "\n")
-                parsed_transactions.insert(
-                    0,
-                    {
-                        "signature": f"{raw_transaction.signature}",
-                        **parsed_transaction,
-                    },
-                )
+            all_raw_transactions = parent_signatures.union(child_signatures)
+
+            merge_signatures_time = time.time_ns() // 1_000_000
+            print(
+                "merge_signatures_time",
+                f"{merge_signatures_time - request_signatures_time}",
+                "\n",
+            )
+            # Retrieve transactions and parse data
+            tasks = [
+                self._fetch_and_parse_transaction(client, raw_tx)
+                for raw_tx in all_raw_transactions
+            ]
+            parsed_transactions_list = await asyncio.gather(*tasks)
+
+            # Filter out None results from failed tasks
+            parsed_transactions = [
+                tx for tx in parsed_transactions_list if tx is not None
+            ]
+            parse_transactions_time = time.time_ns() // 1_000_000
+            print(
+                "parse_transactions_time",
+                f"{parse_transactions_time - merge_signatures_time}",
+            )
             return parsed_transactions
 
     async def fetch_transactions(

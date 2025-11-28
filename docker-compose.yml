@@ -27,7 +27,6 @@ services:
       args:
         - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-build-time-secret-key-not-for-production}
         - DJANGO_DEBUG=${DJANGO_DEBUG:-False}
-        - DATABASE_URL=${DATABASE_URL:-sqlite:///db.sqlite3}
     container_name: zeno_web
     command: >
       sh -c "
