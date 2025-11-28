@@ -6,6 +6,7 @@ import traceback
 import asyncio
 from typing import Any, Dict, List, Optional
 
+from utils.cache import SearchCache
 from utils.list_utils import first_or_none, last_or_none, single_or_none
 
 from wallets.models import WalletModel
@@ -55,6 +56,9 @@ METADATA_PROGRAM_ID = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt5
 class SolanaService:
     def __init__(self, endpoint="https://api.devnet.solana.com"):
         self.endpoint = endpoint
+        self.metadata_cache = SearchCache(
+            cache_dir="metadata_cache", default_ttl=3600 * 24
+        )
 
     def sol_to_lamports(self, sol_amount: float) -> int:
         return int(sol_amount * LAMPORTS_PER_SOL)
@@ -964,6 +968,14 @@ class SolanaService:
                 return TokenAccountSchema(error=str(e))
 
     async def fetch_token_metadata_from_uri(self, uri: str) -> Optional[Dict[str, Any]]:
+        # Check cache first
+        cached_metadata_list = self.metadata_cache.get(
+            uri, search_engine="token_metadata"
+        )
+        if cached_metadata_list:
+            print(f"Cache hit for metadata URI: {uri}")
+            return cached_metadata_list[0]
+
         try:
             normalized_uri = self.normalize_metadata_uri(uri)
             print(f"Fetching metadata from: {normalized_uri}")
@@ -982,6 +994,11 @@ class SolanaService:
                         content = content.strip()
                         try:
                             metadata = json.loads(content)
+                            # Put to cache
+                            if metadata:  # Don't cache empty metadata
+                                self.metadata_cache.put(
+                                    uri, [metadata], search_engine="token_metadata"
+                                )
                             return metadata
                         except json.JSONDecodeError as e:
                             print(f"JSON decode error: {e}")
@@ -1251,14 +1268,11 @@ class SolanaService:
 
     async def fetch_transactions_by_owner(self, data: TransactionRetrieverSchema):
         async with AsyncClient(self.endpoint, timeout=30.0) as client:
-            start_time = time.time_ns() // 1_000_000
-            print(f"{start_time}")
             before_signature = (data.before_signature or "").strip()
             until_signature = (data.until_signature or "").strip()
             child_token_accounts = await self.retrieve_token_accounts(data.account)
             # print("child_token_accounts", child_token_accounts)
 
-            # transactions = []
             parsed_transactions = []
             parent_signatures = set()
             child_signatures = set()
@@ -1266,8 +1280,12 @@ class SolanaService:
             owners = [token_account.address for token_account in child_token_accounts]
             accounts_to_fetch = [data.account] + owners
 
-            before_sig = Signature.from_string(before_signature) if before_signature else None
-            until_sig = Signature.from_string(until_signature) if until_signature else None
+            before_sig = (
+                Signature.from_string(before_signature) if before_signature else None
+            )
+            until_sig = (
+                Signature.from_string(until_signature) if until_signature else None
+            )
 
             sig_tasks = [
                 client.get_signatures_for_address(
@@ -1276,16 +1294,11 @@ class SolanaService:
                     until=until_sig,
                     limit=data.limit,
                     commitment=Finalized,
-                ) for acc in accounts_to_fetch
+                )
+                for acc in accounts_to_fetch
             ]
-            
+
             all_signature_responses = await asyncio.gather(*sig_tasks)
-            request_signatures_time = time.time_ns() // 1_000_000
-            print(
-                "request_signatures_time",
-                f"{request_signatures_time - start_time}",
-                "\n",
-            )
 
             account_signatures = all_signature_responses[0]
             if account_signatures and account_signatures.value:
@@ -1321,12 +1334,6 @@ class SolanaService:
 
             all_raw_transactions = parent_signatures.union(child_signatures)
 
-            merge_signatures_time = time.time_ns() // 1_000_000
-            print(
-                "merge_signatures_time",
-                f"{merge_signatures_time - request_signatures_time}",
-                "\n",
-            )
             # Retrieve transactions and parse data
             tasks = [
                 self._fetch_and_parse_transaction(client, raw_tx)
@@ -1338,11 +1345,7 @@ class SolanaService:
             parsed_transactions = [
                 tx for tx in parsed_transactions_list if tx is not None
             ]
-            parse_transactions_time = time.time_ns() // 1_000_000
-            print(
-                "parse_transactions_time",
-                f"{parse_transactions_time - merge_signatures_time}",
-            )
+
             return parsed_transactions
 
     async def fetch_transactions(
