@@ -20,10 +20,10 @@ solana_service = SolanaService()
     response=dict,
     auth=helpers.api_auth_user_or_anon,
 )
-async def retrieve_transaction_list(request, account: str, limit: int):
-    print(f"retrieve_transaction_list(request, account: {account}, limit: {limit})")
+async def retrieve_transaction_list(request, owner: str, limit: int):
+    print(f"retrieve_transaction_list(request, account: {owner}, limit: {limit})")
     result = await solana_service.fetch_transactions_by_owner(
-        data=TransactionRetrieverSchema(account=account, limit=limit)
+        data=TransactionRetrieverSchema(account=owner, limit=limit)
     )
     return BaseResponseSchema(
         data=result,
@@ -38,12 +38,12 @@ async def retrieve_transaction_list(request, account: str, limit: int):
 async def retrieve_transaction(
     request,
     signature: str,
-    owner: Optional[List[str]] = Query(None),
+    owners: Optional[List[str]] = Query(None),
     parsed_json: bool = False,
 ):
     print(f"retrieve_transaction(request, signature: {signature})")
     result = await solana_service.fetch_transactions(
-        signature=signature, owner=owner, parsed_json=parsed_json
+        signature=signature, owner=owners, parsed_json=parsed_json
     )
     return BaseResponseSchema(
         data=result,
