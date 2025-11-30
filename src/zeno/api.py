@@ -15,7 +15,12 @@ from transactions.api import router as transactions_router
 from tokens.api import router as tokens_router, token_router_pre_release
 from markets.api import router as markets_router
 
-health_check_api = NinjaExtraAPI(version="0.0.1")
+health_check_api = NinjaExtraAPI(
+    title="Zeno",
+    version="0.0.1",
+    description="Health Check API for the Zeno service.",
+    app_name="Zeno Health Check",
+)
 health_check_api.register_controllers(NinjaJWTDefaultController)
 
 health_check_router = Router(tags=["Healthz"])
@@ -29,13 +34,20 @@ def healthz(request):
 health_check_api.add_router("", health_check_router)
 
 
-api_pre_release = NinjaExtraAPI(version="0.0.2")
+api_pre_release = NinjaExtraAPI(
+    title="Zeno",
+    version="0.0.2",
+    description="Pre-release API for the Zeno service.",
+    app_name="Zeno Pre-release",
+)
 api_pre_release.register_controllers(NinjaJWTDefaultController)
 
 api_pre_release.add_router("/wallets", wallet_router_pre_release)
 api_pre_release.add_router("/tokens", token_router_pre_release)
 
-api_v1 = NinjaExtraAPI(version="1.0.0")
+api_v1 = NinjaExtraAPI(
+    title="Zeno", version="1.0.0", description="The Zeno APIs service.", app_name="Zeno"
+)
 api_v1.register_controllers(NinjaJWTDefaultController)
 
 api_v1.add_router("/wallets", wallets_router)
