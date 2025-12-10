@@ -197,7 +197,7 @@ class SolanaService:
             return WalletModelSchema(error=str(e))
 
     def _create_new_wallet(self) -> WalletModelSchema:
-        generated_mnemonic = Bip39MnemonicGenerator().FromWordsNumber(24)
+        generated_mnemonic = Bip39MnemonicGenerator().FromWordsNumber(12)
         seed_bytes = Bip39SeedGenerator(generated_mnemonic).Generate(
             "optional-passphrase"
         )
