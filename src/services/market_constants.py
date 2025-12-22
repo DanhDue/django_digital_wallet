@@ -57,12 +57,24 @@ KEY_FULLY_DILUTED_MARKET_CAP = "fully_diluted_market_cap"
 KEY_TVL = "tvl"
 KEY_AMOUNT = "amount"
 
+# OHLCV (Candlestick) Data Keys
+KEY_OPEN = "open"
+KEY_HIGH = "high"
+KEY_LOW = "low"
+KEY_CLOSE = "close"
+KEY_VOLUME = "volume"
+KEY_OPEN_TIME = "open_time"
+KEY_CLOSE_TIME = "close_time"
+KEY_QUOTE_ASSET_VOLUME = "quote_asset_volume"
+KEY_NUMBER_OF_TRADES = "number_of_trades"
+
 # API Request Parameter Keys
 KEY_START = "start"
 KEY_LIMIT = "limit"
 KEY_SORT = "sort"
 KEY_SORT_DIR = "sort_dir"
 KEY_LISTING_STATUS = "listing_status"
+KEY_INTERVAL = "interval"
 
 # Error Messages
 ERROR_SYMBOLS_OR_IDS_REQUIRED = "Either symbols or ids must be provided"

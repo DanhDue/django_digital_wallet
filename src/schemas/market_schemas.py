@@ -91,8 +91,8 @@ class CryptocurrencyOHLCVRequestSchema(Schema):
     # List of CoinMarketCap cryptocurrency IDs (comma-separated)
     ids: Optional[str] = None
 
-    # Currency to convert to (default: USD)
-    convert: Optional[str] = "USD"
+    # Currency to convert to (default: USDT for Binance compatibility)
+    convert: Optional[str] = "USDT"
 
 
 class MarketSchema(Schema):

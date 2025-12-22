@@ -10,6 +10,7 @@ class CoinMarketCapService:
 
     BASE_URL = "https://pro-api.coinmarketcap.com/v1"
     SANDBOX_URL = "https://sandbox-api.coinmarketcap.com/v1"
+    BINANCE_BASE_URL = "https://api.binance.com/api/v3"
 
     def __init__(self, api_key: Optional[str] = None, use_sandbox: bool = False):
         """
@@ -425,3 +426,70 @@ class CoinMarketCapService:
         ]
 
         return filtered[:limit]
+
+    async def get_binance_ohlcv_latest(
+        self,
+        symbols: List[str],
+        convert: str = "USDT",
+        interval: str = "1d",
+        limit: int = 1,
+    ) -> Dict:
+        """
+        Get the latest OHLCV (Open, High, Low, Close, Volume) data from Binance.
+
+        Args:
+            symbols: List of cryptocurrency symbols (e.g., ["BTC", "ETH"])
+            convert: Quote currency for trading pairs (default: USDT)
+                    Supported values: USDT, BTC, BUSD, BNB, ETH, and other Binance quote assets
+                    Example: symbols=["ETH"] with convert="USDT" fetches ETHUSDT pair
+            interval: Kline interval (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M)
+            limit: Number of klines to return (default: 1 for latest)
+
+        Returns:
+            Dictionary containing OHLCV data for each symbol
+        """
+
+        if not symbols:
+            return {mc.KEY_ERROR: "Binance API requires cryptocurrency symbols"}
+
+        result = {}
+
+        async with aiohttp.ClientSession() as session:
+            for symbol in symbols:
+                # Construct the trading pair (e.g., BTCUSDT)
+                pair = f"{symbol}{convert}"
+
+                try:
+                    async with session.get(
+                        f"{self.BINANCE_BASE_URL}/klines",
+                        params={
+                            mc.KEY_SYMBOL: pair,
+                            mc.KEY_INTERVAL: interval,
+                            mc.KEY_LIMIT: limit,
+                        },
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as response:
+                        response.raise_for_status()
+                        data = await response.json()
+
+                        # Parse Binance kline data
+                        # Format: [open_time, open, high, low, close, volume, close_time, ...]
+                        if data:
+                            latest = data[-1]
+                            result[symbol] = {
+                                mc.KEY_OPEN_TIME: latest[0],
+                                mc.KEY_OPEN: float(latest[1]),
+                                mc.KEY_HIGH: float(latest[2]),
+                                mc.KEY_LOW: float(latest[3]),
+                                mc.KEY_CLOSE: float(latest[4]),
+                                mc.KEY_VOLUME: float(latest[5]),
+                                mc.KEY_CLOSE_TIME: latest[6],
+                                mc.KEY_QUOTE_ASSET_VOLUME: float(latest[7]),
+                                mc.KEY_NUMBER_OF_TRADES: latest[8],
+                            }
+                except aiohttp.ClientError as e:
+                    result[symbol] = {mc.KEY_ERROR: f"Binance API error: {str(e)}"}
+                except Exception as e:
+                    result[symbol] = {mc.KEY_ERROR: f"Unexpected error: {str(e)}"}
+
+        return result

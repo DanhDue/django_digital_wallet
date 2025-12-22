@@ -133,13 +133,22 @@ async def search_cryptocurrency(
 async def retrieve_cryptocurrency_ohlcv(
     request, params: CryptocurrencyOHLCVRequestSchema = Query(...)
 ):
-    """Get the latest OHLCV (Open, High, Low, Close, Volume) data."""
-    symbols = params.symbols.split(",") if params.symbols else None
-    ids = [int(id) for id in params.ids.split(",")] if params.ids else None
+    """
+    Get the latest OHLCV (Open, High, Low, Close, Volume) data from Binance.
 
-    result = await coinmarketcap_service.get_cryptocurrency_ohlcv_latest(
+    The 'convert' parameter specifies the quote currency for trading pairs.
+    Supported values: USDT (default), BTC, BUSD, BNB, ETH, and other Binance-supported quote assets.
+    Example: symbols=BTC,ETH with convert=USDT will fetch BTCUSDT and ETHUSDT pairs.
+    """
+    symbols = params.symbols.split(",") if params.symbols else None
+
+    if not symbols:
+        return BaseResponseSchema(
+            error="Symbols are required for Binance OHLCV data"
+        ).to_dict()
+
+    result = await coinmarketcap_service.get_binance_ohlcv_latest(
         symbols=symbols,
-        ids=ids,
         convert=params.convert,
     )
     return BaseResponseSchema(data=result).to_dict()
