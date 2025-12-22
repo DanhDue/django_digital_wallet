@@ -1,3 +1,4 @@
+import asyncio
 import aiohttp
 from typing import Dict, List, Optional
 from django.conf import settings
@@ -75,8 +76,12 @@ class CoinMarketCapService:
             mc.KEY_PLATFORM: crypto.get(mc.KEY_PLATFORM),
             mc.KEY_CMC_RANK: crypto.get(mc.KEY_CMC_RANK),
             mc.KEY_IS_FIAT: crypto.get(mc.KEY_IS_FIAT),
-            mc.KEY_SELF_REPORTED_CIRC_SUPPLY: crypto.get(mc.KEY_SELF_REPORTED_CIRC_SUPPLY),
-            mc.KEY_SELF_REPORTED_MARKET_CAP: crypto.get(mc.KEY_SELF_REPORTED_MARKET_CAP),
+            mc.KEY_SELF_REPORTED_CIRC_SUPPLY: crypto.get(
+                mc.KEY_SELF_REPORTED_CIRC_SUPPLY
+            ),
+            mc.KEY_SELF_REPORTED_MARKET_CAP: crypto.get(
+                mc.KEY_SELF_REPORTED_MARKET_CAP
+            ),
             mc.KEY_TVL_RATIO: crypto.get(mc.KEY_TVL_RATIO),
             mc.KEY_LAST_UPDATED: crypto.get(mc.KEY_LAST_UPDATED),
             # Quote fields
@@ -91,7 +96,9 @@ class CoinMarketCapService:
             mc.KEY_PERCENT_CHANGE_90D: quote_data.get(mc.KEY_PERCENT_CHANGE_90D),
             mc.KEY_MARKET_CAP: quote_data.get(mc.KEY_MARKET_CAP),
             mc.KEY_MARKET_CAP_DOMINANCE: quote_data.get(mc.KEY_MARKET_CAP_DOMINANCE),
-            mc.KEY_FULLY_DILUTED_MARKET_CAP: quote_data.get(mc.KEY_FULLY_DILUTED_MARKET_CAP),
+            mc.KEY_FULLY_DILUTED_MARKET_CAP: quote_data.get(
+                mc.KEY_FULLY_DILUTED_MARKET_CAP
+            ),
             mc.KEY_TVL: quote_data.get(mc.KEY_TVL),
         }
 
@@ -141,15 +148,21 @@ class CoinMarketCapService:
         if not symbols and not ids:
             return {mc.KEY_ERROR: mc.ERROR_SYMBOLS_OR_IDS_REQUIRED}
 
-        # Fetch quote data
-        params = {mc.KEY_CONVERT: convert}
-        if symbols:
-            params[mc.KEY_SYMBOL] = ",".join(symbols)
-        elif ids:
-            params[mc.KEY_ID] = ",".join(map(str, ids))
+        # Prepare parameters for both requests
+        quote_params = {mc.KEY_CONVERT: convert}
+        info_params = {}
 
-        quotes_response = await self._make_request(
-            "cryptocurrency/quotes/latest", params
+        if symbols:
+            quote_params[mc.KEY_SYMBOL] = ",".join(symbols)
+            info_params[mc.KEY_SYMBOL] = ",".join(symbols)
+        elif ids:
+            quote_params[mc.KEY_ID] = ",".join(map(str, ids))
+            info_params[mc.KEY_ID] = ",".join(map(str, ids))
+
+        # Fetch quote data and metadata concurrently
+        quotes_response, info_response = await asyncio.gather(
+            self._make_request("cryptocurrency/quotes/latest", quote_params),
+            self._make_request("cryptocurrency/info", info_params),
         )
 
         # Handle error responses
@@ -166,14 +179,7 @@ class CoinMarketCapService:
                 crypto, quote_data, timestamp
             )
 
-        # Fetch and merge metadata
-        info_params = {}
-        if symbols:
-            info_params[mc.KEY_SYMBOL] = ",".join(symbols)
-        elif ids:
-            info_params[mc.KEY_ID] = ",".join(map(str, ids))
-
-        info_response = await self._make_request("cryptocurrency/info", info_params)
+        # Merge metadata
         self._merge_metadata(combined_data, info_response)
 
         return combined_data
