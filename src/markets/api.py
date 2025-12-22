@@ -62,7 +62,7 @@ async def retrieve_cryptocurrency_info(
 
 
 @router.get(
-    "/price-conversion",
+    "/price",
     response=dict,
     auth=helpers.api_auth_user_or_anon,
 )
@@ -78,7 +78,7 @@ async def convert_price(request, params: PriceConversionRequestSchema = Query(..
 
 
 @router.get(
-    "/global-metrics",
+    "/metrics",
     response=dict,
     auth=helpers.api_auth_user_or_anon,
 )
@@ -93,7 +93,7 @@ async def retrieve_global_metrics(
 
 
 @router.get(
-    "/map",
+    "/maps",
     response=dict,
     auth=helpers.api_auth_user_or_anon,
 )
