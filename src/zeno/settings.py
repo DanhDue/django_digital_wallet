@@ -29,6 +29,9 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DJANGO_DEBUG", cast=bool, default=False)
 
+# CoinMarketCap API Key
+CMC_API_KEY = config("CMC_API_KEY", cast=str)
+
 DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 HEROKU_APP_NAME = config("HEROKU_APP_NAME", cast=str, default="").strip().lower()
 if HEROKU_APP_NAME:
