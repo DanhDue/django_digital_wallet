@@ -8,7 +8,7 @@ from schemas.base_response_schema import BaseResponseSchema
 from schemas.market_schemas import (
     MarketSchema,
     CryptocurrencyListingsRequestSchema,
-    CryptocurrencyQuotesRequestSchema,
+    CryptocurrencyInfoRequestSchema,
     CryptocurrencyInfoRequestSchema,
     PriceConversionRequestSchema,
     GlobalMetricsRequestSchema,
@@ -42,26 +42,6 @@ async def retrieve_market_currencies(
 
 
 @router.get(
-    "/quotes",
-    response=dict,
-    auth=helpers.api_auth_user_or_anon,
-)
-async def retrieve_cryptocurrency_quotes(
-    request, params: CryptocurrencyQuotesRequestSchema = Query(...)
-):
-    """Get the latest market quote for cryptocurrencies."""
-    symbols = params.symbols.split(",") if params.symbols else None
-    ids = [int(id) for id in params.ids.split(",")] if params.ids else None
-
-    result = await coinmarketcap_service.get_cryptocurrency_quotes_latest(
-        symbols=symbols,
-        ids=ids,
-        convert=params.convert,
-    )
-    return BaseResponseSchema(data=result).to_dict()
-
-
-@router.get(
     "/info",
     response=dict,
     auth=helpers.api_auth_user_or_anon,
@@ -69,13 +49,14 @@ async def retrieve_cryptocurrency_quotes(
 async def retrieve_cryptocurrency_info(
     request, params: CryptocurrencyInfoRequestSchema = Query(...)
 ):
-    """Get metadata information for cryptocurrencies."""
+    """Get comprehensive cryptocurrency data including quotes and metadata."""
     symbols = params.symbols.split(",") if params.symbols else None
     ids = [int(id) for id in params.ids.split(",")] if params.ids else None
 
-    result = await coinmarketcap_service.get_cryptocurrency_info(
+    result = await coinmarketcap_service.get_cryptocurrency_details(
         symbols=symbols,
         ids=ids,
+        convert=params.convert,
     )
     return BaseResponseSchema(data=result).to_dict()
 

@@ -23,7 +23,7 @@ class CryptocurrencyListingsRequestSchema(Schema):
     sort_dir: Optional[str] = "desc"
 
 
-class CryptocurrencyQuotesRequestSchema(Schema):
+class CryptocurrencyInfoRequestSchema(Schema):
     """Schema for cryptocurrency quotes API request parameters."""
 
     # List of cryptocurrency symbols (e.g., "BTC,ETH")
@@ -34,16 +34,6 @@ class CryptocurrencyQuotesRequestSchema(Schema):
 
     # Currency to convert to (default: USD)
     convert: Optional[str] = "USD"
-
-
-class CryptocurrencyInfoRequestSchema(Schema):
-    """Schema for cryptocurrency info API request parameters."""
-
-    # List of cryptocurrency symbols (e.g., "BTC,ETH")
-    symbols: Optional[str] = None
-
-    # List of CoinMarketCap cryptocurrency IDs (comma-separated)
-    ids: Optional[str] = None
 
 
 class PriceConversionRequestSchema(Schema):
