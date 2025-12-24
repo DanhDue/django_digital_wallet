@@ -197,6 +197,7 @@ class CoinMarketCapService:
         sort: str = "market_cap",
         sort_dir: str = "desc",
         include_metadata: bool = True,
+        include_ohlcv: bool = True,
     ) -> List[Dict]:
         """
         Get a paginated list of all active cryptocurrencies with latest market data.
@@ -208,6 +209,7 @@ class CoinMarketCapService:
             sort: Sort field (market_cap, name, symbol, etc.)
             sort_dir: Sort direction (asc or desc)
             include_metadata: Whether to include the full metadata (default: True)
+            include_ohlcv: Whether to include the latest OHLCV data (default: True)
 
         Returns:
             List of dictionaries containing flattened cryptocurrency data with quote information
@@ -230,14 +232,33 @@ class CoinMarketCapService:
         timestamp = response.get(mc.KEY_STATUS, {}).get(mc.KEY_TIMESTAMP)
         cryptos = response.get(mc.KEY_DATA, [])
 
-        # Fetch metadata if requested (using cache)
+        # Fetch metadata and OHLCV if requested
         metadata_map = {}
+        ohlcv_map = {}
+
+        tasks = []
         if include_metadata and cryptos:
-            metadata_map = await self._get_metadata_with_cache(cryptos)
+            tasks.append(self._get_metadata_with_cache(cryptos))
+        else:
+            tasks.append(asyncio.sleep(0, result={}))
+
+        if include_ohlcv and cryptos:
+            symbols = [crypto.get(mc.KEY_SYMBOL) for crypto in cryptos]
+            # Use Binance for OHLCV since CMC OHLCV is often paid/restricted
+            tasks.append(self.get_binance_ohlcv_latest(symbols=symbols, convert="USDT"))
+        else:
+            tasks.append(asyncio.sleep(0, result={}))
+
+        metadata_map, ohlcv_response = await asyncio.gather(*tasks)
+
+        if include_ohlcv:
+            ohlcv_map = ohlcv_response
 
         # Parse and flatten each cryptocurrency
         return [
-            self._flatten_crypto_data(crypto, convert, timestamp, metadata_map)
+            self._flatten_crypto_data(
+                crypto, convert, timestamp, metadata_map, ohlcv_map
+            )
             for crypto in cryptos
         ]
 
@@ -274,7 +295,12 @@ class CoinMarketCapService:
         return metadata_map
 
     def _flatten_crypto_data(
-        self, crypto: Dict, convert: str, timestamp: str, metadata_map: Dict[int, Dict]
+        self,
+        crypto: Dict,
+        convert: str,
+        timestamp: str,
+        metadata_map: Dict[int, Dict],
+        ohlcv_map: Dict[str, Dict] = None,
     ) -> Dict:
         """Flatten nested cryptocurrency data into a single dictionary."""
         quote_data = crypto.get(mc.KEY_QUOTE, {}).get(convert, {})
@@ -333,6 +359,23 @@ class CoinMarketCapService:
                     ),
                 }
             )
+
+        # Merge OHLCV if available
+        if ohlcv_map:
+            # Binance OHLCV returns data keyed by symbol
+            symbol = crypto.get(mc.KEY_SYMBOL)
+            if symbol in ohlcv_map:
+                ohlcv_data = ohlcv_map[symbol]
+                if mc.KEY_ERROR not in ohlcv_data:
+                    flattened.update(
+                        {
+                            mc.KEY_OPEN: ohlcv_data.get(mc.KEY_OPEN),
+                            mc.KEY_HIGH: ohlcv_data.get(mc.KEY_HIGH),
+                            mc.KEY_LOW: ohlcv_data.get(mc.KEY_LOW),
+                            mc.KEY_CLOSE: ohlcv_data.get(mc.KEY_CLOSE),
+                            mc.KEY_VOLUME: ohlcv_data.get(mc.KEY_VOLUME),
+                        }
+                    )
 
         return flattened
 
@@ -520,44 +563,61 @@ class CoinMarketCapService:
         if not symbols:
             return {mc.KEY_ERROR: "Binance API requires cryptocurrency symbols"}
 
-        result = {}
-
         async with aiohttp.ClientSession() as session:
-            for symbol in symbols:
-                # Construct the trading pair (e.g., BTCUSDT)
-                pair = f"{symbol}{convert}"
+            tasks = [
+                self._fetch_single_binance_ohlcv(
+                    session, symbol, convert, interval, limit
+                )
+                for symbol in symbols
+            ]
+            results = await asyncio.gather(*tasks)
 
-                try:
-                    async with session.get(
-                        f"{self.BINANCE_BASE_URL}/klines",
-                        params={
-                            mc.KEY_SYMBOL: pair,
-                            mc.KEY_INTERVAL: interval,
-                            mc.KEY_LIMIT: limit,
-                        },
-                        timeout=aiohttp.ClientTimeout(total=30),
-                    ) as response:
-                        response.raise_for_status()
-                        data = await response.json()
+        # Merge results into a single dictionary
+        combined_result = {}
+        for symbol, data in zip(symbols, results):
+            combined_result[symbol] = data
 
-                        # Parse Binance kline data
-                        # Format: [open_time, open, high, low, close, volume, close_time, ...]
-                        if data:
-                            latest = data[-1]
-                            result[symbol] = {
-                                mc.KEY_OPEN_TIME: latest[0],
-                                mc.KEY_OPEN: float(latest[1]),
-                                mc.KEY_HIGH: float(latest[2]),
-                                mc.KEY_LOW: float(latest[3]),
-                                mc.KEY_CLOSE: float(latest[4]),
-                                mc.KEY_VOLUME: float(latest[5]),
-                                mc.KEY_CLOSE_TIME: latest[6],
-                                mc.KEY_QUOTE_ASSET_VOLUME: float(latest[7]),
-                                mc.KEY_NUMBER_OF_TRADES: latest[8],
-                            }
-                except aiohttp.ClientError as e:
-                    result[symbol] = {mc.KEY_ERROR: f"Binance API error: {str(e)}"}
-                except Exception as e:
-                    result[symbol] = {mc.KEY_ERROR: f"Unexpected error: {str(e)}"}
+        return combined_result
 
-        return result
+    async def _fetch_single_binance_ohlcv(
+        self,
+        session: aiohttp.ClientSession,
+        symbol: str,
+        convert: str,
+        interval: str,
+        limit: int,
+    ) -> Dict:
+        """Helper to fetch OHLCV for a single symbol from Binance."""
+        pair = f"{symbol}{convert}"
+        try:
+            async with session.get(
+                f"{self.BINANCE_BASE_URL}/klines",
+                params={
+                    mc.KEY_SYMBOL: pair,
+                    mc.KEY_INTERVAL: interval,
+                    mc.KEY_LIMIT: limit,
+                },
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+
+                # Parse Binance kline data
+                if data:
+                    latest = data[-1]
+                    return {
+                        mc.KEY_OPEN_TIME: latest[0],
+                        mc.KEY_OPEN: float(latest[1]),
+                        mc.KEY_HIGH: float(latest[2]),
+                        mc.KEY_LOW: float(latest[3]),
+                        mc.KEY_CLOSE: float(latest[4]),
+                        mc.KEY_VOLUME: float(latest[5]),
+                        mc.KEY_CLOSE_TIME: latest[6],
+                        mc.KEY_QUOTE_ASSET_VOLUME: float(latest[7]),
+                        mc.KEY_NUMBER_OF_TRADES: latest[8],
+                    }
+                return {mc.KEY_ERROR: "No data returned from Binance"}
+        except aiohttp.ClientError as e:
+            return {mc.KEY_ERROR: f"Binance API error: {str(e)}"}
+        except Exception as e:
+            return {mc.KEY_ERROR: f"Unexpected error: {str(e)}"}

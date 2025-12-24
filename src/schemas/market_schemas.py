@@ -25,6 +25,9 @@ class CryptocurrencyListingsRequestSchema(Schema):
     # Whether to include the full metadata (default: True)
     include_metadata: Optional[bool] = True
 
+    # Whether to include the latest OHLCV data (default: True)
+    include_ohlcv: Optional[bool] = True
+
 
 class CryptocurrencyInfoRequestSchema(Schema):
     """Schema for cryptocurrency quotes API request parameters."""
