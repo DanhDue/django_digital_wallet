@@ -374,6 +374,14 @@ class CoinMarketCapService:
                             mc.KEY_LOW: ohlcv_data.get(mc.KEY_LOW),
                             mc.KEY_CLOSE: ohlcv_data.get(mc.KEY_CLOSE),
                             mc.KEY_VOLUME: ohlcv_data.get(mc.KEY_VOLUME),
+                            mc.KEY_OPEN_TIME: ohlcv_data.get(mc.KEY_OPEN_TIME),
+                            mc.KEY_CLOSE_TIME: ohlcv_data.get(mc.KEY_CLOSE_TIME),
+                            mc.KEY_QUOTE_ASSET_VOLUME: ohlcv_data.get(
+                                mc.KEY_QUOTE_ASSET_VOLUME
+                            ),
+                            mc.KEY_NUMBER_OF_TRADES: ohlcv_data.get(
+                                mc.KEY_NUMBER_OF_TRADES
+                            ),
                         }
                     )
 
