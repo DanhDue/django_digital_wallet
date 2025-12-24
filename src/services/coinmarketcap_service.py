@@ -3,6 +3,7 @@ import aiohttp
 from typing import Dict, List, Optional
 from django.conf import settings
 from . import market_constants as mc
+from utils.cache import SearchCache
 
 
 class CoinMarketCapService:
@@ -26,6 +27,9 @@ class CoinMarketCapService:
             "X-CMC_PRO_API_KEY": self.api_key,
             "Accept": "application/json",
         }
+        self.metadata_cache = SearchCache(
+            cache_dir="metadata_cache", default_ttl=3600 * 24 * 7
+        )
 
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """
@@ -192,6 +196,7 @@ class CoinMarketCapService:
         convert: str = "USD",
         sort: str = "market_cap",
         sort_dir: str = "desc",
+        include_info: bool = True,
     ) -> List[Dict]:
         """
         Get a paginated list of all active cryptocurrencies with latest market data.
@@ -202,6 +207,7 @@ class CoinMarketCapService:
             convert: Currency to convert to (default: USD)
             sort: Sort field (market_cap, name, symbol, etc.)
             sort_dir: Sort direction (asc or desc)
+            include_info: Whether to include the metadata like logo (default: True)
 
         Returns:
             List of dictionaries containing flattened cryptocurrency data with quote information
@@ -222,51 +228,95 @@ class CoinMarketCapService:
 
         # Extract timestamp from status
         timestamp = response.get(mc.KEY_STATUS, {}).get(mc.KEY_TIMESTAMP)
+        cryptos = response.get(mc.KEY_DATA, [])
+
+        # Fetch logos if requested (using cache)
+        logo_map = {}
+        if include_info and cryptos:
+            logo_map = await self._get_logos_with_cache(cryptos)
 
         # Parse and flatten each cryptocurrency
-        flattened_data = []
-        for crypto in response.get(mc.KEY_DATA, []):
-            # Extract USD quote data
-            quote_usd = crypto.get(mc.KEY_QUOTE, {}).get(convert, {})
+        return [
+            self._flatten_crypto_data(crypto, convert, timestamp, logo_map)
+            for crypto in cryptos
+        ]
 
-            # Create flattened object with timestamp and all crypto fields
-            flattened_crypto = {
-                mc.KEY_TIMESTAMP: timestamp,
-                mc.KEY_ID: crypto.get(mc.KEY_ID),
-                mc.KEY_NAME: crypto.get(mc.KEY_NAME),
-                mc.KEY_SYMBOL: crypto.get(mc.KEY_SYMBOL),
-                mc.KEY_SLUG: crypto.get(mc.KEY_SLUG),
-                mc.KEY_NUM_MARKET_PAIRS: crypto.get(mc.KEY_NUM_MARKET_PAIRS),
-                mc.KEY_DATE_ADDED: crypto.get(mc.KEY_DATE_ADDED),
-                mc.KEY_MAX_SUPPLY: crypto.get(mc.KEY_MAX_SUPPLY),
-                mc.KEY_CIRCULATING_SUPPLY: crypto.get(mc.KEY_CIRCULATING_SUPPLY),
-                mc.KEY_TOTAL_SUPPLY: crypto.get(mc.KEY_TOTAL_SUPPLY),
-                mc.KEY_INFINITE_SUPPLY: crypto.get(mc.KEY_INFINITE_SUPPLY),
-                mc.KEY_MINTED_MARKET_CAP: crypto.get(mc.KEY_MINTED_MARKET_CAP),
-                mc.KEY_PLATFORM: crypto.get(mc.KEY_PLATFORM),
-                mc.KEY_CMC_RANK: crypto.get(mc.KEY_CMC_RANK),
-                mc.KEY_LAST_UPDATED: crypto.get(mc.KEY_LAST_UPDATED),
-                # Add all quote fields
-                mc.KEY_PRICE: quote_usd.get(mc.KEY_PRICE),
-                mc.KEY_VOLUME_24H: quote_usd.get(mc.KEY_VOLUME_24H),
-                mc.KEY_VOLUME_CHANGE_24H: quote_usd.get(mc.KEY_VOLUME_CHANGE_24H),
-                mc.KEY_PERCENT_CHANGE_1H: quote_usd.get(mc.KEY_PERCENT_CHANGE_1H),
-                mc.KEY_PERCENT_CHANGE_24H: quote_usd.get(mc.KEY_PERCENT_CHANGE_24H),
-                mc.KEY_PERCENT_CHANGE_7D: quote_usd.get(mc.KEY_PERCENT_CHANGE_7D),
-                mc.KEY_PERCENT_CHANGE_30D: quote_usd.get(mc.KEY_PERCENT_CHANGE_30D),
-                mc.KEY_PERCENT_CHANGE_60D: quote_usd.get(mc.KEY_PERCENT_CHANGE_60D),
-                mc.KEY_PERCENT_CHANGE_90D: quote_usd.get(mc.KEY_PERCENT_CHANGE_90D),
-                mc.KEY_MARKET_CAP: quote_usd.get(mc.KEY_MARKET_CAP),
-                mc.KEY_MARKET_CAP_DOMINANCE: quote_usd.get(mc.KEY_MARKET_CAP_DOMINANCE),
-                mc.KEY_FULLY_DILUTED_MARKET_CAP: quote_usd.get(
-                    mc.KEY_FULLY_DILUTED_MARKET_CAP
-                ),
-                mc.KEY_TVL: quote_usd.get(mc.KEY_TVL),
-            }
+    async def _get_logos_with_cache(self, cryptos: List[Dict]) -> Dict[int, str]:
+        """Fetch logos from cache or API for a list of cryptocurrencies."""
+        logo_map = {}
+        ids_to_fetch = []
 
-            flattened_data.append(flattened_crypto)
+        for crypto in cryptos:
+            crypto_id = crypto.get(mc.KEY_ID)
+            cached_data = self.metadata_cache.get(str(crypto_id), "cmc_logo")
+            if cached_data and isinstance(cached_data, list) and cached_data:
+                logo_map[crypto_id] = cached_data[0].get(mc.KEY_LOGO)
+            else:
+                ids_to_fetch.append(str(crypto_id))
 
-        return flattened_data
+        if not ids_to_fetch:
+            return logo_map
+
+        # Fetch missing from API
+        info_response = await self._make_request(
+            "cryptocurrency/info", {mc.KEY_ID: ",".join(ids_to_fetch)}
+        )
+
+        if mc.KEY_DATA in info_response and mc.KEY_ERROR not in info_response:
+            for crypto_id, info in info_response.get(mc.KEY_DATA, {}).items():
+                logo_url = info.get(mc.KEY_LOGO)
+                cid = int(crypto_id)
+                logo_map[cid] = logo_url
+                # Store in cache
+                self.metadata_cache.put(str(cid), [{mc.KEY_LOGO: logo_url}], "cmc_logo")
+
+        return logo_map
+
+    def _flatten_crypto_data(
+        self, crypto: Dict, convert: str, timestamp: str, logo_map: Dict[int, str]
+    ) -> Dict:
+        """Flatten nested cryptocurrency data into a single dictionary."""
+        quote_data = crypto.get(mc.KEY_QUOTE, {}).get(convert, {})
+        crypto_id = crypto.get(mc.KEY_ID)
+
+        flattened = {
+            mc.KEY_TIMESTAMP: timestamp,
+            mc.KEY_ID: crypto_id,
+            mc.KEY_NAME: crypto.get(mc.KEY_NAME),
+            mc.KEY_SYMBOL: crypto.get(mc.KEY_SYMBOL),
+            mc.KEY_SLUG: crypto.get(mc.KEY_SLUG),
+            mc.KEY_NUM_MARKET_PAIRS: crypto.get(mc.KEY_NUM_MARKET_PAIRS),
+            mc.KEY_DATE_ADDED: crypto.get(mc.KEY_DATE_ADDED),
+            mc.KEY_MAX_SUPPLY: crypto.get(mc.KEY_MAX_SUPPLY),
+            mc.KEY_CIRCULATING_SUPPLY: crypto.get(mc.KEY_CIRCULATING_SUPPLY),
+            mc.KEY_TOTAL_SUPPLY: crypto.get(mc.KEY_TOTAL_SUPPLY),
+            mc.KEY_INFINITE_SUPPLY: crypto.get(mc.KEY_INFINITE_SUPPLY),
+            mc.KEY_MINTED_MARKET_CAP: crypto.get(mc.KEY_MINTED_MARKET_CAP),
+            mc.KEY_PLATFORM: crypto.get(mc.KEY_PLATFORM),
+            mc.KEY_CMC_RANK: crypto.get(mc.KEY_CMC_RANK),
+            mc.KEY_LAST_UPDATED: crypto.get(mc.KEY_LAST_UPDATED),
+            # Add all quote fields
+            mc.KEY_PRICE: quote_data.get(mc.KEY_PRICE),
+            mc.KEY_VOLUME_24H: quote_data.get(mc.KEY_VOLUME_24H),
+            mc.KEY_VOLUME_CHANGE_24H: quote_data.get(mc.KEY_VOLUME_CHANGE_24H),
+            mc.KEY_PERCENT_CHANGE_1H: quote_data.get(mc.KEY_PERCENT_CHANGE_1H),
+            mc.KEY_PERCENT_CHANGE_24H: quote_data.get(mc.KEY_PERCENT_CHANGE_24H),
+            mc.KEY_PERCENT_CHANGE_7D: quote_data.get(mc.KEY_PERCENT_CHANGE_7D),
+            mc.KEY_PERCENT_CHANGE_30D: quote_data.get(mc.KEY_PERCENT_CHANGE_30D),
+            mc.KEY_PERCENT_CHANGE_60D: quote_data.get(mc.KEY_PERCENT_CHANGE_60D),
+            mc.KEY_PERCENT_CHANGE_90D: quote_data.get(mc.KEY_PERCENT_CHANGE_90D),
+            mc.KEY_MARKET_CAP: quote_data.get(mc.KEY_MARKET_CAP),
+            mc.KEY_MARKET_CAP_DOMINANCE: quote_data.get(mc.KEY_MARKET_CAP_DOMINANCE),
+            mc.KEY_FULLY_DILUTED_MARKET_CAP: quote_data.get(
+                mc.KEY_FULLY_DILUTED_MARKET_CAP
+            ),
+            mc.KEY_TVL: quote_data.get(mc.KEY_TVL),
+        }
+
+        if crypto_id in logo_map:
+            flattened[mc.KEY_LOGO] = logo_map[crypto_id]
+
+        return flattened
 
     async def get_cryptocurrency_map(
         self, listing_status: str = "active", start: int = 1, limit: int = 5000

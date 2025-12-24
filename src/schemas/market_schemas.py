@@ -22,6 +22,9 @@ class CryptocurrencyListingsRequestSchema(Schema):
     # Sort direction: asc or desc (default: desc)
     sort_dir: Optional[str] = "desc"
 
+    # Whether to include the metadata like logo (default: True)
+    include_info: Optional[bool] = True
+
 
 class CryptocurrencyInfoRequestSchema(Schema):
     """Schema for cryptocurrency quotes API request parameters."""

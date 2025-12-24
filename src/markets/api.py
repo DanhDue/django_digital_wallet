@@ -37,6 +37,7 @@ async def retrieve_market_currencies(
         convert=params.convert,
         sort=params.sort,
         sort_dir=params.sort_dir,
+        include_info=params.include_info,
     )
     return BaseResponseSchema(data=result).to_dict()
 
