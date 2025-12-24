@@ -196,7 +196,7 @@ class CoinMarketCapService:
         convert: str = "USD",
         sort: str = "market_cap",
         sort_dir: str = "desc",
-        include_info: bool = True,
+        include_metadata: bool = True,
     ) -> List[Dict]:
         """
         Get a paginated list of all active cryptocurrencies with latest market data.
@@ -207,7 +207,7 @@ class CoinMarketCapService:
             convert: Currency to convert to (default: USD)
             sort: Sort field (market_cap, name, symbol, etc.)
             sort_dir: Sort direction (asc or desc)
-            include_info: Whether to include the metadata like logo (default: True)
+            include_metadata: Whether to include the full metadata (default: True)
 
         Returns:
             List of dictionaries containing flattened cryptocurrency data with quote information
@@ -230,32 +230,33 @@ class CoinMarketCapService:
         timestamp = response.get(mc.KEY_STATUS, {}).get(mc.KEY_TIMESTAMP)
         cryptos = response.get(mc.KEY_DATA, [])
 
-        # Fetch logos if requested (using cache)
-        logo_map = {}
-        if include_info and cryptos:
-            logo_map = await self._get_logos_with_cache(cryptos)
+        # Fetch metadata if requested (using cache)
+        metadata_map = {}
+        if include_metadata and cryptos:
+            metadata_map = await self._get_metadata_with_cache(cryptos)
 
         # Parse and flatten each cryptocurrency
         return [
-            self._flatten_crypto_data(crypto, convert, timestamp, logo_map)
+            self._flatten_crypto_data(crypto, convert, timestamp, metadata_map)
             for crypto in cryptos
         ]
 
-    async def _get_logos_with_cache(self, cryptos: List[Dict]) -> Dict[int, str]:
-        """Fetch logos from cache or API for a list of cryptocurrencies."""
-        logo_map = {}
+    async def _get_metadata_with_cache(self, cryptos: List[Dict]) -> Dict[int, Dict]:
+        """Fetch metadata from cache or API for a list of cryptocurrencies."""
+        metadata_map = {}
         ids_to_fetch = []
 
         for crypto in cryptos:
             crypto_id = crypto.get(mc.KEY_ID)
-            cached_data = self.metadata_cache.get(str(crypto_id), "cmc_logo")
+            # Use a different partition 'cmc_metadata' for full metadata
+            cached_data = self.metadata_cache.get(str(crypto_id), "cmc_metadata")
             if cached_data and isinstance(cached_data, list) and cached_data:
-                logo_map[crypto_id] = cached_data[0].get(mc.KEY_LOGO)
+                metadata_map[crypto_id] = cached_data[0]
             else:
                 ids_to_fetch.append(str(crypto_id))
 
         if not ids_to_fetch:
-            return logo_map
+            return metadata_map
 
         # Fetch missing from API
         info_response = await self._make_request(
@@ -264,16 +265,16 @@ class CoinMarketCapService:
 
         if mc.KEY_DATA in info_response and mc.KEY_ERROR not in info_response:
             for crypto_id, info in info_response.get(mc.KEY_DATA, {}).items():
-                logo_url = info.get(mc.KEY_LOGO)
                 cid = int(crypto_id)
-                logo_map[cid] = logo_url
-                # Store in cache
-                self.metadata_cache.put(str(cid), [{mc.KEY_LOGO: logo_url}], "cmc_logo")
+                # Store the whole info dict (metadata)
+                metadata_map[cid] = info
+                # Store in cache (as a list containing the dict)
+                self.metadata_cache.put(str(cid), [info], "cmc_metadata")
 
-        return logo_map
+        return metadata_map
 
     def _flatten_crypto_data(
-        self, crypto: Dict, convert: str, timestamp: str, logo_map: Dict[int, str]
+        self, crypto: Dict, convert: str, timestamp: str, metadata_map: Dict[int, Dict]
     ) -> Dict:
         """Flatten nested cryptocurrency data into a single dictionary."""
         quote_data = crypto.get(mc.KEY_QUOTE, {}).get(convert, {})
@@ -313,8 +314,25 @@ class CoinMarketCapService:
             mc.KEY_TVL: quote_data.get(mc.KEY_TVL),
         }
 
-        if crypto_id in logo_map:
-            flattened[mc.KEY_LOGO] = logo_map[crypto_id]
+        # Merge metadata if available
+        if crypto_id in metadata_map:
+            info = metadata_map[crypto_id]
+            flattened.update(
+                {
+                    mc.KEY_LOGO: info.get(mc.KEY_LOGO),
+                    mc.KEY_DESCRIPTION: info.get(mc.KEY_DESCRIPTION),
+                    mc.KEY_CATEGORY: info.get(mc.KEY_CATEGORY),
+                    mc.KEY_NOTICE: info.get(mc.KEY_NOTICE),
+                    mc.KEY_URLS: info.get(mc.KEY_URLS),
+                    mc.KEY_DATE_LAUNCHED: info.get(mc.KEY_DATE_LAUNCHED),
+                    mc.KEY_SELF_REPORTED_CIRC_SUPPLY: info.get(
+                        mc.KEY_SELF_REPORTED_CIRC_SUPPLY
+                    ),
+                    mc.KEY_SELF_REPORTED_MARKET_CAP: info.get(
+                        mc.KEY_SELF_REPORTED_MARKET_CAP
+                    ),
+                }
+            )
 
         return flattened
 

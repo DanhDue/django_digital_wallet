@@ -16,37 +16,31 @@ async def verify():
     service = CoinMarketCapService()
 
     try:
-        # Test 1: With logos (include_info=True) - First run (possibly cache miss)
-        print("Test 1: Fetching with logos (include_info=True)...")
+        # Test 1: With metadata (include_metadata=True) - First run (cached)
+        print("Test 1: Fetching with full metadata (include_metadata=True)...")
         start_time = time.time()
-        result_with_logo = await service.get_cryptocurrency_listings_latest(
-            limit=5, include_info=True
+        result_with_metadata = await service.get_cryptocurrency_listings_latest(
+            limit=5, include_metadata=True
         )
         end_time = time.time()
         print(f"Time taken: {end_time - start_time:.4f}s")
 
-        for crypto in result_with_logo:
-            print(
-                f"Crypto: {crypto.get('name')} ({crypto.get('symbol')}) - Logo: {crypto.get('logo')}"
-            )
+        for crypto in result_with_metadata:
+            print(f"\n--- {crypto.get('name')} ({crypto.get('symbol')}) ---")
+            print(f"Logo: {crypto.get('logo')}")
+            print(f"Description: {str(crypto.get('description'))[:100]}...")
+            urls = crypto.get("urls", {})
+            website = urls.get("website", [None])[0] if urls else None
+            print(f"Website: {website}")
 
-        # Test 2: Repeat to check cache (include_info=True)
-        print("\nTest 2: Fetching again to check cache...")
-        start_time = time.time()
-        result_cached = await service.get_cryptocurrency_listings_latest(
-            limit=5, include_info=True
+        # Test 2: Without metadata (include_metadata=False)
+        print("\nTest 2: Fetching without metadata (include_metadata=False)...")
+        result_no_metadata = await service.get_cryptocurrency_listings_latest(
+            limit=5, include_metadata=False
         )
-        end_time = time.time()
-        print(f"Time taken (cache hit): {end_time - start_time:.4f}s")
-
-        # Test 3: Without logos (include_info=False)
-        print("\nTest 3: Fetching without logos (include_info=False)...")
-        result_no_logo = await service.get_cryptocurrency_listings_latest(
-            limit=5, include_info=False
-        )
-        for crypto in result_no_logo:
+        for crypto in result_no_metadata:
             print(
-                f"Crypto: {crypto.get('name')} ({crypto.get('symbol')}) - Logo: {crypto.get('logo')}"
+                f"Crypto: {crypto.get('name')} ({crypto.get('symbol')}) - Logo: {crypto.get('logo')} - Desc: {crypto.get('description')}"
             )
 
     except Exception as e:
