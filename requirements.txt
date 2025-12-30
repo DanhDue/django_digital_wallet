@@ -20,7 +20,6 @@ uvicorn
 aiohttp
 dj-database-url
 whitenoise
-django-heroku
 gunicorn
 psycopg2-binary
 requests

@@ -14,7 +14,6 @@ from pathlib import Path
 import datetime
 from decouple import config
 import dj_database_url
-import django_heroku
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -121,7 +120,7 @@ ASGI_APPLICATION = "zeno.asgi.application"
 
 DATABASES = {
     "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=config("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
         conn_max_age=600,
         conn_health_checks=True,
     )
@@ -189,6 +188,3 @@ NINJA_JWT = {
     "ACCESS_TOKEN_LIFETIME": datetime.timedelta(minutes=5),
     "REFRESH_TOKEN_LIFETIME": datetime.timedelta(days=1),
 }
-
-if not DEBUG:
-    django_heroku.settings(locals(), staticfiles=False)
