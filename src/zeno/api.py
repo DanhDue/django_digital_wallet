@@ -14,6 +14,7 @@ from transactions.api import router as transactions_router
 from tokens.api import router as tokens_router, token_router_pre_release
 from markets.api import router as markets_router
 from accounts.api import get_users_router
+from d3votion.api import router as d3votion_router
 
 health_check_api = NinjaExtraAPI(
     title="Zeno",
@@ -53,3 +54,4 @@ api_v1.add_router("/transactions", transactions_router)
 api_v1.add_router("/tokens", tokens_router)
 api_v1.add_router("/markets", markets_router)
 api_v1.add_router("/users", get_users_router())
+api_v1.add_router("/d3votion", d3votion_router)

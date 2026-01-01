@@ -31,6 +31,10 @@ DEBUG = config("DJANGO_DEBUG", cast=bool, default=False)
 # CoinMarketCap API Key
 CMC_API_KEY = config("CMC_API_KEY", default="", cast=str)
 
+# Gemini API Key
+GEMINI_API_KEY = config("GEMINI_API_KEY", default="", cast=str)
+MOCK_AI_DICTIONARY = config("MOCK_AI_DICTIONARY", default=False, cast=bool)
+
 DEFAULT_ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 HEROKU_APP_NAME = config("HEROKU_APP_NAME", cast=str, default="").strip().lower()
 if HEROKU_APP_NAME:
@@ -73,6 +77,7 @@ INSTALLED_APPS = [
     "transactions",
     "tokens",
     "markets",
+    "d3votion",
 ]
 
 MIDDLEWARE = [

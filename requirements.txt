@@ -23,3 +23,5 @@ whitenoise
 gunicorn
 psycopg2-binary
 requests
+google-generativeai
+urllib3
