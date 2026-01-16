@@ -13,3 +13,9 @@ class AccountSchema(Schema):
     id: int
     username: str
     email: Optional[str] = None
+
+
+class CustomObtainTokenSchema(Schema):
+    username: str = None
+    email: str = None
+    password: str

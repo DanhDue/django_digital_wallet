@@ -10,7 +10,9 @@ from ninja_jwt.routers.verify import verify_token, schema as verify_schema
 
 import helpers
 from schemas.base_response_schema import BaseResponseSchema
-from .schemas import RegisterSchema, AccountSchema
+from .schemas import RegisterSchema, AccountSchema, CustomObtainTokenSchema
+from django.contrib.auth import authenticate
+from ninja_jwt.tokens import RefreshToken
 
 
 def register(request, data: RegisterSchema):
@@ -43,11 +45,35 @@ def get_users_router():
     router = Router(tags=["Users"])
 
     # Consolidation: Add JWT routes directly
-    router.post(
-        "/login",
-        response=obtain_schema.obtain_pair_schema.get_response_schema(),
-        auth=None,
-    )(obtain_token)
+    @router.post(
+        "/login", response=obtain_schema.obtain_pair_schema.get_response_schema(), auth=None
+    )
+    def login(request, data: CustomObtainTokenSchema):
+        user = None
+        # Try authentication via email
+        if data.email:
+            try:
+                user_obj = User.objects.get(email=data.email)
+                user = authenticate(username=user_obj.username, password=data.password)
+            except User.DoesNotExist:
+                pass
+
+        # If email auth didn't work (or wasn't provided), try username
+        if not user and data.username:
+            user = authenticate(username=data.username, password=data.password)
+
+        if not user:
+            return BaseResponseSchema(
+                success=False, message="Invalid credentials"
+            ).to_dict()
+
+        refresh = RefreshToken.for_user(user)
+        return {
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": AccountSchema.from_orm(user),
+        }
+
     router.post(
         "/refresh",
         response=obtain_schema.obtain_pair_refresh_schema.get_response_schema(),
@@ -58,7 +84,6 @@ def get_users_router():
         response={200: verify_schema.verify_schema.get_response_schema()},
         auth=None,
     )(verify_token)
-
     # Add user routes
     router.post("/register", response=dict, auth=None)(register)
     router.get("/me", response=dict, auth=helpers.api_auth_user_required)(me)
